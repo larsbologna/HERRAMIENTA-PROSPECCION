@@ -3,6 +3,12 @@ import { collector, type AuditRule } from '../context.js';
 export const websiteRules: AuditRule = ({ profile, website: w, vertical }) => {
   const c = collector('rules:website');
 
+  // Sin web utilizable no hay dónde reservar: si tampoco hay botón de reserva en Maps, es un problema propio.
+  const noUsableWebsite = !profile.website || !w || w.isSocialOrDirectory || !w.reachable;
+  if (noUsableWebsite && vertical.bookingRelevant && !profile.hasBooking) {
+    c.finding({ id: 'booking-none', area: 'website', severity: 'medium', title: 'No tiene reservas online', detail: `Ni la ficha de Maps ni una web propia permiten reservar o pedir cita: en ${vertical.label.toLowerCase()} todo depende de llamadas y mensajes.` });
+  }
+
   if (!profile.website || !w) {
     c.finding({ id: 'web-none', area: 'website', severity: 'critical', title: 'No tiene sitio web', detail: 'La ficha no enlaza a ninguna web. Se pierde credibilidad, posicionamiento y un canal para captar clientes 24/7.' });
     return c.out;

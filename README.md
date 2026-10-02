@@ -47,22 +47,47 @@ Reglas puras y testeables en `src/auditor/rules/`:
 
 | Área | Detecta |
 |---|---|
-| Google Maps | ficha no reclamada, categoría genérica, sin/pobre descripción, horarios ausentes o incompletos, pocas fotos, sin publicaciones, pocos atributos, sin carta (gastronomía), sin botón de reserva |
+| Google Maps | ficha no reclamada, categoría genérica, sin/pobre descripción, horarios ausentes o incompletos, pocas fotos, sin publicaciones, pocos atributos, sin carta (gastronomía), sin reservas online |
 | Sitio web | no tiene / es una red social / no carga, sin HTTPS, no adaptada a móvil, lenta, diseño anticuado, contacto poco claro, sin WhatsApp, sin reservas online |
-| WhatsApp | enlace visible o no, potencial de automatización, oportunidad de agente IA |
+| WhatsApp | enlace visible o no, sin respuesta automática, potencial de automatización, oportunidad de agente IA |
 | Reputación | volumen de reseñas, calificación, tasa de respuesta, negativas sin responder, frecuencia de reseñas recientes |
 | Sistema QR | si conviene y con qué urgencia, con estimación de reseñas/mes |
 
 Los umbrales se adaptan al **rubro** detectado (`src/domain/verticals.ts`: gastronomía, salud, belleza, fitness, alojamiento…).
 
-### 3. Propuesta comercial
+### 3. Argumentos comerciales (uno por cada problema)
+`src/proposal/salesArguments.ts` convierte **cada problema detectado** en un argumento de venta listo para usar, con los datos reales del negocio (nº de reseñas, calificación, rubro, tiempo de carga…):
+
+```
+Problema detectado:
+Tiene pocas reseñas (23).
+Impacto estimado:
+Alto
+Motivo:
+Muchos usuarios comparan negocios similares antes de elegir. Con 23 reseñas, Peluquería Lola queda por
+debajo de los negocios de belleza y bienestar mejor posicionados (que suelen superar las 100), lo que
+reduce la confianza y las conversiones, y también su posición en Google Maps.
+Servicio recomendado:
+Sistema QR para reseñas y Optimización de Google Maps.
+Beneficio para el cliente:
+Un flujo constante de reseñas positivas que aumenta la confianza, mejora el posicionamiento y convierte
+más búsquedas en clientes.
+```
+
+- Impacto: **Bajo / Medio / Medio-Alto / Alto**, ordenados de mayor a menor.
+- Cada servicio de la propuesta muestra qué problemas concretos **resuelve**.
+- En la interfaz: botón **Copiar argumentos** (texto plano en este formato). API: `GET /api/audits/:id/arguments.txt`.
+- Para cambiar un texto, edita su entrada en `ARGUMENTS`. Un test comprueba que todo problema que detecta el auditor tenga su argumento.
+- Los problemas que aporten agentes IA sin argumento propio también se convierten (impacto según gravedad y servicio según área).
+
+### 4. Propuesta comercial
 `src/proposal/proposalEngine.ts` decide qué servicios ofrecer, con **encaje (0-100)** y **prioridad** (alta/media/baja):
 Optimización Google Maps · Sistema QR para reseñas · Sitio web profesional · Bot IA para WhatsApp · Dashboard administrativo · Sistema de reservas · Automatización de atención.
 
-### 4. Informe
-Resumen ejecutivo · Problemas · Oportunidades · Servicios recomendados · Prioridad · Potencial de mejora (hoy → con mejoras) · Mensaje de WhatsApp. El mismo HTML se muestra en pantalla y se exporta a PDF (Chromium), así lo que ves es lo que envías.
+### 5. Informe
+Resumen ejecutivo · Problemas (en formato de argumento comercial) · Oportunidades · Servicios recomendados · Prioridad · Potencial de mejora (hoy → con mejoras) · Mensaje de WhatsApp. El mismo HTML se muestra en pantalla y se exporta a PDF (Chromium), así lo que ves es lo que envías.
 
-### 5. Sistema QR de reseñas (demo funcional)
+### 6. Sistema QR de reseñas (demo funcional)
 Cada informe incluye una página de valoración propia lista para enseñar al cliente: `http://localhost:3000/r/<id>` (y su QR en `/api/audits/<id>/qr.png`).
 - **5★** → redirige a Google para dejar la reseña (enlace directo *escribir reseña* si se detectó el Place ID).
 - **1-4★** → guarda el comentario en privado (`data/reports/<id>/qr-feedback.json`, consultable en `/api/audits/<id>/feedback`).
@@ -105,6 +130,7 @@ Flujo: `Maps → Web → Auditoría → Agentes IA → Propuesta → Informe (JS
 | GET | `/api/audits/:id` | Informe completo (JSON) — 202 mientras se procesa |
 | GET | `/api/audits` | Historial |
 | GET | `/api/audits/:id/html` | Informe renderizado (fragmento HTML) |
+| GET | `/api/audits/:id/arguments.txt` | Argumentos comerciales en texto plano |
 | GET | `/api/audits/:id/pdf` | Descarga PDF |
 | GET | `/api/audits/:id/qr.png` | QR de la página de valoración |
 | GET | `/api/audits/:id/feedback` | Feedback interno captado por el QR |

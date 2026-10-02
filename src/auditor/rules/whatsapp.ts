@@ -10,6 +10,16 @@ export const whatsappRules: AuditRule = ({ profile, website, vertical }) => {
     c.finding({ id: 'wa-not-visible', area: 'whatsapp', severity: 'high', title: 'WhatsApp no visible', detail: 'No hay enlace de WhatsApp ni en la ficha ni en la web: el canal preferido de los clientes queda fuera.' });
   }
 
+  // No se puede ver desde fuera si usa respuestas automáticas de WhatsApp Business;
+  // sí se ve si hay algún chat/bot en la web. Sin ninguno, se asume atención 100% manual.
+  if (!website?.hasChatWidget) {
+    c.finding({
+      id: 'wa-no-auto-reply', area: 'whatsapp', severity: vertical.whatsappIntensity === 3 ? 'high' : 'medium',
+      title: 'No responde consultas automáticamente',
+      detail: 'No se detectó ningún chat, bot ni asistente automático: las consultas dependen de que alguien esté disponible para contestar.',
+    });
+  }
+
   const volume = (profile.reviewCount ?? 0) >= 100 || vertical.whatsappIntensity === 3;
   c.opportunity({
     id: 'wa-automation', area: 'whatsapp', title: 'Automatizar respuestas frecuentes por WhatsApp',

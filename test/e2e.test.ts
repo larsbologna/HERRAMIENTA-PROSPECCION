@@ -90,6 +90,8 @@ test('pipeline completo: Maps → web → auditoría → agente → informe', { 
   }
   const services = report.proposal.services.map((s) => s.id);
   for (const s of ['maps-optimization', 'qr-reviews', 'website', 'whatsapp-ai-bot', 'booking-system']) assert.ok(services.includes(s as never), `falta servicio ${s}`);
+  assert.equal(report.proposal.salesArguments.length, report.audit.findings.length);
+  assert.ok(report.proposal.salesArguments.some((a) => a.findingId === 'ai-test'), 'el hallazgo del agente también tiene argumento');
   assert.ok(report.agentContributions[0]?.ok);
   assert.equal(report.screenshots.length >= 4, true, `capturas: ${report.screenshots.map((s) => s.id)}`);
   for (const s of report.screenshots) await fs.access(path.join(dataDir, 'reports', report.id, s.file));
@@ -105,6 +107,12 @@ test('API: informe HTML, página QR, feedback y PDF', { timeout: 120_000 }, asyn
     const html = await fetch(`${api}/api/audits/${report.id}/html`).then((r) => r.text());
     assert.match(html, /Resumen ejecutivo/);
     assert.match(html, /Mensaje comercial para WhatsApp/);
+
+    assert.match(html, /Problema detectado/);
+    assert.match(html, /Beneficio para el cliente/);
+    const txt = await fetch(`${api}/api/audits/${report.id}/arguments.txt`).then((r) => r.text());
+    assert.match(txt, /^ARGUMENTOS COMERCIALES · Peluquería Lola/);
+    assert.match(txt, /Problema detectado:\nLa ficha de Google Maps no está reclamada por el dueño\.\nImpacto estimado:\nAlto/);
 
     const list = await fetch(`${api}/api/audits`).then((r) => r.json());
     assert.equal(list[0].id, report.id);

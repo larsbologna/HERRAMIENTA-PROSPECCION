@@ -6,6 +6,7 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import { agentRegistry } from '../agents/registry.js';
 import { REPORT_CSS, renderReportBody } from '../report/htmlRenderer.js';
 import { exportPdf } from '../report/pdfExporter.js';
+import { formatSalesArgumentsText } from '../proposal/salesArguments.js';
 import { googleReviewUrl, qrDataUri, qrPageUrl, qrPng } from '../report/qrAssets.js';
 import { isMapsUrl } from '../scraper/mapsScraper.js';
 import { addFeedback, listFeedback } from '../storage/feedbackStore.js';
@@ -116,6 +117,13 @@ export function createApp(jobs = new JobManager()) {
         qrImage: qr ? await qrDataUri(qrPageUrl(id)) : undefined,
       }),
     );
+  }));
+
+  // Argumentos comerciales en texto plano (formato de prospección, listo para pegar).
+  app.get('/api/audits/:id/arguments.txt', wrap(async (req, res) => {
+    const report = await loadReport(idParam(req));
+    if (!report) return res.status(404).send('Informe no encontrado');
+    res.type('text/plain; charset=utf-8').send(formatSalesArgumentsText(report.profile.name, report.proposal.salesArguments));
   }));
 
   app.get('/api/audits/:id/pdf', wrap(async (req, res) => {

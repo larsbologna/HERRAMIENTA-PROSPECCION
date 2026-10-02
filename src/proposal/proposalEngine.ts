@@ -1,5 +1,15 @@
 import type { AuditContext } from '../auditor/context.js';
-import type { AuditResult, ImprovementPotential, Priority, Proposal, ServiceId, ServiceRecommendation } from '../domain/types.js';
+import type {
+  AuditResult,
+  ImprovementPotential,
+  Priority,
+  Proposal,
+  SalesArgument,
+  SalesImpact,
+  ServiceId,
+  ServiceRecommendation,
+} from '../domain/types.js';
+import { buildSalesArguments } from './salesArguments.js';
 import { SERVICE_CATALOG } from './services.js';
 import { buildWhatsappMessage, whatsappLink } from './whatsappMessage.js';
 
@@ -121,15 +131,48 @@ export function buildProposal(ctx: AuditContext, audit: AuditResult): Proposal {
       fitScore: result.fit,
       reasons: result.reasons,
       expectedImpact: result.impact,
+      solves: [],
     });
   }
+
+  const salesArguments = buildSalesArguments(ctx, audit.findings);
+  linkArgumentsToServices(services, salesArguments);
   services.sort((a, b) => b.fitScore - a.fitScore);
 
   const potential = computePotential(audit, services);
-  const proposal: Proposal = { services, potential, whatsappMessage: '' };
+  const proposal: Proposal = { salesArguments, services, potential, whatsappMessage: '' };
   proposal.whatsappMessage = buildWhatsappMessage(ctx, audit, proposal);
   proposal.whatsappLink = whatsappLink(ctx.profile.phone, proposal.whatsappMessage);
   return proposal;
+}
+
+const FIT_FROM_IMPACT: Record<SalesImpact, number> = { Alto: 75, 'Medio-Alto': 62, Medio: 48, Bajo: 30 };
+
+/**
+ * Cada argumento comercial apunta a uno o más servicios. Se anota qué problemas resuelve cada
+ * servicio y, si un argumento menciona un servicio que el motor no había seleccionado,
+ * se añade a la propuesta para que el informe sea coherente.
+ */
+function linkArgumentsToServices(services: ServiceRecommendation[], args: SalesArgument[]): void {
+  for (const arg of args) {
+    for (const id of arg.serviceIds) {
+      let svc = services.find((s) => s.id === id);
+      if (!svc) {
+        const fit = FIT_FROM_IMPACT[arg.impact];
+        svc = {
+          id,
+          name: SERVICE_CATALOG[id].name,
+          priority: priorityFor(fit),
+          fitScore: fit,
+          reasons: [],
+          expectedImpact: arg.benefit,
+          solves: [],
+        };
+        services.push(svc);
+      }
+      if (!svc.solves.includes(arg.problem)) svc.solves.push(arg.problem);
+    }
+  }
 }
 
 export function computePotential(audit: AuditResult, services: ServiceRecommendation[]): ImprovementPotential {

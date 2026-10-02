@@ -3,6 +3,7 @@
  * Ejecuta el análisis completo sin interfaz y guarda el informe en DATA_DIR.
  */
 import { runPipeline } from './pipeline/pipeline.js';
+import { formatSalesArgumentsText } from './proposal/salesArguments.js';
 import { exportPdf } from './report/pdfExporter.js';
 import { reportDir } from './storage/reportStore.js';
 
@@ -24,4 +25,5 @@ console.log(`\n${report.profile.name} → ${report.audit.overallScore}/100`);
 console.log(report.executiveSummary);
 console.log(`\nInforme: ${reportDir(report.id)}/report.json`);
 if (args.includes('--pdf')) console.log(`PDF: ${await exportPdf(report)}`);
+console.log(`\n${formatSalesArgumentsText(report.profile.name, report.proposal.salesArguments)}`);
 console.log(`\n--- Mensaje WhatsApp ---\n${report.proposal.whatsappMessage}`);

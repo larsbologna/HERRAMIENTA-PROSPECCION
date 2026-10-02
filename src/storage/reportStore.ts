@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { config } from '../config/index.js';
 import type { AuditReport } from '../domain/types.js';
+import { upgradeReport } from '../report/upgrade.js';
 
 /** Almacenamiento en disco: data/reports/<id>/{report.json, screenshots/, report.pdf}. */
 export const reportsDir = () => path.join(config.dataDir, 'reports');
@@ -27,7 +28,7 @@ export async function saveReport(report: AuditReport): Promise<string> {
 export async function loadReport(id: string): Promise<AuditReport | undefined> {
   try {
     const raw = await fs.readFile(path.join(reportDir(id), 'report.json'), 'utf8');
-    return JSON.parse(raw) as AuditReport;
+    return upgradeReport(JSON.parse(raw) as AuditReport);
   } catch {
     return undefined;
   }

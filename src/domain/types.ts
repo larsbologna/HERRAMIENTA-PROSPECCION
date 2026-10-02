@@ -207,6 +207,8 @@ export interface ServiceRecommendation {
   fitScore: number;
   reasons: string[];
   expectedImpact: string;
+  /** Problemas detectados que este servicio resuelve (texto de SalesArgument.problem). */
+  solves: string[];
 }
 
 export interface ImprovementPotential {
@@ -217,7 +219,32 @@ export interface ImprovementPotential {
   explanation: string;
 }
 
+export type SalesImpact = 'Bajo' | 'Medio' | 'Medio-Alto' | 'Alto';
+
+/**
+ * Argumento comercial derivado de un problema detectado: listo para usar
+ * en prospección (qué pasa, cuánto importa, por qué, qué lo resuelve y qué gana el cliente).
+ */
+export interface SalesArgument {
+  findingId: string;
+  area: AuditArea;
+  /** Problema detectado (en lenguaje de cliente). */
+  problem: string;
+  impact: SalesImpact;
+  /** Cómo afecta al negocio, con los datos concretos de esta ficha. */
+  reason: string;
+  serviceIds: ServiceId[];
+  /** Nombre(s) del servicio que lo resuelve. */
+  service: string;
+  /** Beneficio concreto que obtiene el cliente al resolverlo. */
+  benefit: string;
+  /** Dato observado que respalda el argumento (opcional). */
+  evidence?: string;
+}
+
 export interface Proposal {
+  /** Un argumento comercial por cada problema detectado, ordenado por impacto. */
+  salesArguments: SalesArgument[];
   services: ServiceRecommendation[];
   potential: ImprovementPotential;
   whatsappMessage: string;

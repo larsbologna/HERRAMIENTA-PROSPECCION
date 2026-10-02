@@ -1,4 +1,4 @@
-import type { AuditReport, Finding, Priority, Screenshot, Severity } from '../domain/types.js';
+import type { AuditReport, Priority, SalesArgument, SalesImpact, Screenshot } from '../domain/types.js';
 
 /**
  * Renderizador único del informe: el mismo HTML se usa en la interfaz web y para el PDF,
@@ -21,7 +21,6 @@ const esc = (v: unknown): string =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 
-const SEVERITY_LABEL: Record<Severity, string> = { critical: 'Crítico', high: 'Alto', medium: 'Medio', low: 'Bajo' };
 const PRIORITY_LABEL: Record<Priority, string> = { alta: 'Prioridad alta', media: 'Prioridad media', baja: 'Prioridad baja' };
 const AREA_LABEL: Record<string, string> = { maps: 'Google Maps', website: 'Sitio web', whatsapp: 'WhatsApp', reputation: 'Reputación', qr: 'Reseñas QR' };
 
@@ -50,13 +49,34 @@ function kpi(label: string, value: string, hint?: string): string {
   return `<div class="rp-kpi"><div class="rp-kpi-label">${esc(label)}</div><div class="rp-kpi-value">${esc(value)}</div>${hint ? `<div class="rp-kpi-hint">${esc(hint)}</div>` : ''}</div>`;
 }
 
-function findingItem(f: Finding): string {
-  return `<li class="rp-finding sev-${f.severity}">
-    <span class="rp-badge sev-${f.severity}">${SEVERITY_LABEL[f.severity]}</span>
-    <div><div class="rp-finding-title">${esc(f.title)} <span class="rp-area">${esc(AREA_LABEL[f.area] ?? f.area)}</span></div>
-    <div class="rp-finding-detail">${esc(f.detail)}</div>
-    ${f.evidence ? `<div class="rp-evidence">${esc(f.evidence)}</div>` : ''}</div>
+const IMPACT_CLASS: Record<SalesImpact, string> = { Alto: 'alto', 'Medio-Alto': 'medio-alto', Medio: 'medio', Bajo: 'bajo' };
+
+/** Tarjeta de argumento comercial: Problema → Impacto → Motivo → Servicio → Beneficio. */
+function argumentCard(a: SalesArgument, i: number): string {
+  const imp = IMPACT_CLASS[a.impact];
+  return `<li class="rp-arg imp-${imp}">
+    <div class="rp-arg-head">
+      <span class="rp-arg-num">${i + 1}</span>
+      <div class="rp-arg-field rp-arg-problem"><div class="rp-arg-label">Problema detectado</div><div class="rp-arg-title">${esc(a.problem)}</div></div>
+      <div class="rp-arg-impact"><div class="rp-arg-label">Impacto estimado</div><span class="rp-imp imp-${imp}">${esc(a.impact)}</span></div>
+    </div>
+    <div class="rp-arg-field"><div class="rp-arg-label">Motivo</div><p>${esc(a.reason)}</p>${a.evidence ? `<div class="rp-evidence">Dato observado: ${esc(a.evidence)}</div>` : ''}</div>
+    <div class="rp-arg-grid">
+      <div class="rp-arg-field rp-arg-service"><div class="rp-arg-label">Servicio recomendado</div><strong>${esc(a.service)}</strong></div>
+      <div class="rp-arg-field rp-arg-benefit"><div class="rp-arg-label">Beneficio para el cliente</div><p>${esc(a.benefit)}</p></div>
+    </div>
   </li>`;
+}
+
+function impactSummary(args: SalesArgument[]): string {
+  if (!args.length) return '';
+  const order: SalesImpact[] = ['Alto', 'Medio-Alto', 'Medio', 'Bajo'];
+  const chips = order
+    .map((imp) => ({ imp, n: args.filter((a) => a.impact === imp).length }))
+    .filter((x) => x.n > 0)
+    .map((x) => `<span class="rp-imp imp-${IMPACT_CLASS[x.imp]}">${x.n} de impacto ${x.imp.toLowerCase()}</span>`)
+    .join('');
+  return `<div class="rp-imp-summary">${chips}</div>`;
 }
 
 function row(label: string, value: string | undefined, isLink = false): string {
@@ -100,8 +120,9 @@ export function renderReportBody(report: AuditReport, opts: RenderOptions): stri
   </section>
 
   <section class="rp-section">
-    <h2><span>2</span> Problemas encontrados <small>${a.findings.length}</small></h2>
-    ${a.findings.length ? `<ul class="rp-findings">${a.findings.map(findingItem).join('')}</ul>` : '<p>No se detectaron problemas relevantes.</p>'}
+    <h2><span>2</span> Problemas encontrados <small>${proposal.salesArguments.length}</small></h2>
+    ${impactSummary(proposal.salesArguments)}
+    ${proposal.salesArguments.length ? `<ol class="rp-args">${proposal.salesArguments.map(argumentCard).join('')}</ol>` : '<p>No se detectaron problemas relevantes.</p>'}
   </section>
 
   <section class="rp-section">
@@ -126,7 +147,7 @@ export function renderReportBody(report: AuditReport, opts: RenderOptions): stri
       ${proposal.services.map((s) => `<div class="rp-service prio-${s.priority}">
         <div class="rp-service-head"><h3>${esc(s.name)}</h3><span class="rp-prio prio-${s.priority}">${PRIORITY_LABEL[s.priority]}</span></div>
         <div class="rp-fit"><div class="rp-bar"><div class="rp-bar-fill ${s.priority === 'alta' ? 'bad' : s.priority === 'media' ? 'warn' : 'good'}" style="width:${s.fitScore}%"></div></div><span>Encaje ${s.fitScore}%</span></div>
-        <ul>${s.reasons.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>
+        ${s.solves?.length ? `<div class="rp-solves"><div class="rp-arg-label">Resuelve</div><ul>${s.solves.map((r) => `<li>${esc(r)}</li>`).join('')}</ul></div>` : `<ul>${s.reasons.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>`}
         <p class="rp-impact">${esc(s.expectedImpact)}</p>
       </div>`).join('')}
     </div>
@@ -218,14 +239,27 @@ export const REPORT_CSS = String.raw`
 .rp-area-name{font-weight:600;font-size:13px}.rp-area-score{font-weight:800;text-align:right}
 .rp-bar{height:10px;background:var(--soft);border-radius:99px;overflow:hidden;border:1px solid var(--line)}
 .rp-bar-fill{height:100%;border-radius:99px}.rp-bar-fill.good{background:var(--good)}.rp-bar-fill.warn{background:var(--warn)}.rp-bar-fill.bad{background:var(--bad)}
-.rp-findings,.rp-opps{list-style:none;padding:0;margin:0;display:grid;gap:8px}
-.rp-finding{display:grid;grid-template-columns:72px 1fr;gap:12px;border:1px solid var(--line);border-radius:12px;padding:10px 12px;break-inside:avoid}
-.rp-finding.sev-critical{border-color:#fecaca;background:#fff7f7}
-.rp-finding-title{font-weight:700}.rp-finding-detail{color:var(--muted)}
+.rp-opps{list-style:none;padding:0;margin:0;display:grid;gap:8px}
+.rp-imp-summary{display:flex;flex-wrap:wrap;gap:6px;margin:-4px 0 12px}
+.rp-args{list-style:none;padding:0;margin:0;display:grid;gap:12px}
+.rp-arg{border:1px solid var(--line);border-left:5px solid var(--line);border-radius:14px;padding:14px 16px;break-inside:avoid;background:#fff}
+.rp-arg.imp-alto{border-left-color:var(--bad)}.rp-arg.imp-medio-alto{border-left-color:#ea580c}.rp-arg.imp-medio{border-left-color:var(--warn)}.rp-arg.imp-bajo{border-left-color:#0ea5e9}
+.rp-arg-head{display:grid;grid-template-columns:28px 1fr auto;gap:12px;align-items:start;margin-bottom:8px}
+.rp-arg-num{width:28px;height:28px;border-radius:50%;background:var(--soft);border:1px solid var(--line);display:grid;place-items:center;font-weight:800;font-size:13px}
+.rp-arg-label{font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:700;margin-bottom:2px}
+.rp-arg-title{font-size:15.5px;font-weight:800;line-height:1.35}
+.rp-arg-impact{text-align:right}
+.rp-arg-field p{margin:0}
+.rp-arg-field{margin-bottom:8px}
+.rp-arg-grid{display:grid;grid-template-columns:minmax(180px,1fr) 2fr;gap:10px;margin-top:4px}
+.rp-arg-grid .rp-arg-field{margin:0;border-radius:10px;padding:10px 12px}
+.rp-arg-service{background:#eef0ff}.rp-arg-service strong{color:var(--brand)}
+.rp-arg-benefit{background:#ecfdf3}
+.rp-imp{display:inline-block;font-size:11.5px;font-weight:700;border-radius:99px;padding:3px 10px;white-space:nowrap}
+.rp-imp.imp-alto{background:#fee2e2;color:#991b1b}.rp-imp.imp-medio-alto{background:#ffedd5;color:#9a3412}
+.rp-imp.imp-medio{background:#fef3c7;color:#92400e}.rp-imp.imp-bajo{background:#e0f2fe;color:#075985}
+.rp-solves ul{margin:4px 0 8px}
 .rp-evidence{font-size:12px;color:var(--muted);background:var(--soft);border-radius:6px;padding:4px 8px;margin-top:4px}
-.rp-badge{font-size:11px;font-weight:700;border-radius:6px;padding:3px 0;text-align:center;height:fit-content}
-.rp-badge.sev-critical{background:var(--bad);color:#fff}.rp-badge.sev-high{background:#fee2e2;color:#991b1b}
-.rp-badge.sev-medium{background:#fef3c7;color:#92400e}.rp-badge.sev-low{background:#e0f2fe;color:#075985}
 .rp-area{font-size:11px;font-weight:600;color:var(--brand);background:#eef0ff;border-radius:6px;padding:1px 7px;margin-left:6px;white-space:nowrap}
 .rp-opps li{border:1px dashed #c7c9f9;border-radius:12px;padding:10px 12px;background:#fafaff;break-inside:avoid}
 .rp-opps p{margin:4px 0 0;color:var(--muted)}
@@ -258,7 +292,7 @@ export const REPORT_CSS = String.raw`
 .rp-notes{font-size:12px;color:var(--muted)}
 .rp-footer{border-top:1px solid var(--line);padding-top:12px;font-size:11px;color:var(--muted)}
 .rp a{color:var(--brand)}
-@media screen and (max-width:760px){.rp{padding:20px 16px}.rp-kpis{grid-template-columns:repeat(2,1fr)}.rp-services,.rp-shots{grid-template-columns:1fr}.rp-header{flex-direction:column;align-items:flex-start}.rp-qr{flex-direction:column;align-items:flex-start}}
+@media screen and (max-width:760px){.rp{padding:20px 16px}.rp-arg-grid{grid-template-columns:1fr}.rp-arg-head{grid-template-columns:28px 1fr}.rp-arg-impact{grid-column:2;text-align:left}.rp-kpis{grid-template-columns:repeat(2,1fr)}.rp-services,.rp-shots{grid-template-columns:1fr}.rp-header{flex-direction:column;align-items:flex-start}.rp-qr{flex-direction:column;align-items:flex-start}}
 @media print{.rp{padding:0;max-width:none;border-radius:0}.rp-break{break-before:page}}
 `;
 

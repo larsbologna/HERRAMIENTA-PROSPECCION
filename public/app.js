@@ -190,6 +190,17 @@ $('#copy-msg').addEventListener('click', async () => {
   }
 });
 
+$('#copy-args').addEventListener('click', async () => {
+  if (!state.current) return;
+  try {
+    const text = await fetch(`/api/audits/${state.current}/arguments.txt`).then((r) => r.text());
+    await navigator.clipboard.writeText(text);
+    toast('Argumentos comerciales copiados');
+  } catch {
+    toast('No se pudo copiar');
+  }
+});
+
 $('#download-pdf').addEventListener('click', (ev) => {
   const a = ev.currentTarget;
   if (a.dataset.busy) return ev.preventDefault();

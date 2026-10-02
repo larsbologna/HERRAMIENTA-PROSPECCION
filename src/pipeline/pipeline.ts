@@ -18,7 +18,7 @@ import { STEPS, type PipelineEvent, type StepId, type StepStatus } from './event
 import path from 'node:path';
 
 const log = createLogger('pipeline');
-export const REPORT_VERSION = 1;
+export const REPORT_VERSION = 2;
 
 export interface PipelineOptions {
   /** Permite reutilizar un navegador (tests, procesamiento por lotes). */
