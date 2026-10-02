@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Prospección · Auditoría de presencia online</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/report.css" />
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="brand"><span class="logo">◎</span><div><strong>Prospección</strong><small>Gestor de Presencia Online</small></div></div>
+      <button class="ghost" id="new-audit">+ Nuevo análisis</button>
+      <h4>Historial</h4>
+      <ul id="history" class="history"><li class="empty">Aún no hay análisis</li></ul>
+      <div class="sidebar-foot" id="agents-info"></div>
+    </aside>
+
+    <main class="main">
+      <section class="hero" id="hero">
+        <h1>Audita cualquier negocio <span>en minutos</span></h1>
+        <p>Pega el enlace de Google Maps y obtén problemas, oportunidades, servicios a ofrecer y un mensaje listo para WhatsApp.</p>
+        <form id="audit-form" class="search">
+          <input id="url" type="url" required placeholder="https://maps.app.goo.gl/… o https://www.google.com/maps/place/…" autocomplete="off" />
+          <button type="submit" id="submit">Analizar</button>
+        </form>
+        <div id="form-error" class="form-error" role="alert"></div>
+      </section>
+
+      <section class="panel hidden" id="progress-panel">
+        <div class="panel-head">
+          <h2 id="progress-title">Analizando…</h2>
+          <span class="pct" id="pct">0%</span>
+        </div>
+        <div class="progress"><div class="progress-fill" id="progress-fill"></div></div>
+        <ol class="steps" id="steps"></ol>
+        <details class="log" open><summary>Actividad</summary><ul id="log"></ul></details>
+      </section>
+
+      <section class="panel hidden" id="shots-panel">
+        <div class="panel-head"><h2>Capturas</h2></div>
+        <div class="gallery" id="gallery"></div>
+      </section>
+
+      <section class="hidden" id="report-panel">
+        <div class="toolbar">
+          <div class="toolbar-title" id="report-title"></div>
+          <div class="toolbar-actions">
+            <button id="copy-msg" class="ghost">Copiar mensaje WhatsApp</button>
+            <a id="open-wa" class="ghost" target="_blank" rel="noopener">Abrir en WhatsApp</a>
+            <a id="open-qr" class="ghost" target="_blank" rel="noopener">Página QR demo</a>
+            <a id="download-json" class="ghost" target="_blank" rel="noopener">JSON</a>
+            <a id="download-pdf" class="primary">Exportar PDF</a>
+          </div>
+        </div>
+        <div id="report"></div>
+      </section>
+    </main>
+  </div>
+
+  <div class="lightbox hidden" id="lightbox"><img alt="" /></div>
+  <div class="toast" id="toast"></div>
+  <script src="/app.js" type="module"></script>
+</body>
+</html>
