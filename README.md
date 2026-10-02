@@ -112,7 +112,9 @@ src/
 ├── pipeline/        Orquestador con eventos de progreso + cola de trabajos
 ├── storage/         Persistencia en disco (informes y feedback QR)
 ├── server/          API Express + SSE + página QR
-└── cli.ts           Uso por terminal (diagnose.ts: modo diagnóstico)
+├── diagnostics/     Modo diagnóstico del scraper (sondas, confianza, diagnostico.json)
+├── cli.ts           Uso por terminal
+└── diagnose.ts      Modo diagnóstico por terminal
 public/              Interfaz web (HTML/CSS/JS sin build)
 test/                Unit tests + e2e con Chromium contra una ficha de Maps simulada
 ```
