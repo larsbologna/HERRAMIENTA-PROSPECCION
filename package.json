@@ -1,0 +1,33 @@
+{
+  "name": "herramienta-prospeccion",
+  "version": "1.0.0",
+  "description": "Auditoría comercial automática de fichas de Google Maps para Gestores de Presencia Online",
+  "private": true,
+  "type": "module",
+  "main": "dist/server/index.js",
+  "scripts": {
+    "dev": "tsx watch src/server/index.ts",
+    "start": "node dist/server/index.js",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "audit": "tsx src/cli.ts",
+    "test": "node --import tsx --test test/*.test.ts",
+    "setup": "playwright install chromium",
+    "diagnose": "tsx src/diagnose.ts"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "playwright": "1.56.1",
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.0.0",
+    "@types/qrcode": "^1.5.5",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
