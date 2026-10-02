@@ -19,6 +19,17 @@ export interface ScrapeOptions {
   onScreenshot?: (shot: Screenshot) => void;
   /** Máximo de reseñas a muestrear para calcular frecuencia y tasa de respuesta. */
   maxReviews?: number;
+  /**
+   * Solo para el modo diagnóstico: se invoca justo después de cada extracción, con la página
+   * en el mismo estado y con el resultado crudo obtenido. No altera el scraping.
+   */
+  inspect?: ScrapeInspector;
+}
+
+export interface ScrapeInspector {
+  overview?: (page: Page, raw: RawOverview) => Promise<void>;
+  reviews?: (page: Page, raw: RawReview[]) => Promise<void>;
+  about?: (page: Page, raw: { items: string[]; description: string }) => Promise<void>;
 }
 
 export interface MapsScrapeResult {
@@ -85,15 +96,18 @@ export async function scrapeMapsProfile(browser: Browser, inputUrl: string, opts
 
     progress('Extrayendo datos de la ficha…');
     const raw = (await page.evaluate(EXTRACT_OVERVIEW)) as RawOverview;
+    await opts.inspect?.overview?.(page, raw);
     await scrollPanelTop(page);
     await shoot('maps-ficha', 'Ficha de Google Maps');
 
     progress('Leyendo reseñas recientes…');
     const reviews = await extractReviews(page, opts.maxReviews ?? 40, warnings);
+    await opts.inspect?.reviews?.(page, reviews);
     if (reviews.length) await shoot('maps-resenas', 'Reseñas en Google Maps');
 
     progress('Revisando información y servicios…');
     const about = await extractAbout(page, warnings);
+    await opts.inspect?.about?.(page, about);
     if (about.items.length) await shoot('maps-informacion', 'Información y servicios');
 
     const profile = normalizeProfile(inputUrl, page.url(), raw, reviews, about, warnings);

@@ -12,7 +12,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "audit": "tsx src/cli.ts",
     "test": "node --import tsx --test test/*.test.ts",
-    "setup": "playwright install chromium"
+    "setup": "playwright install chromium",
+    "diagnose": "tsx src/diagnose.ts"
   },
   "engines": {
     "node": ">=20"

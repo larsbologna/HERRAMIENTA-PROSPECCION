@@ -112,7 +112,7 @@ src/
 ├── pipeline/        Orquestador con eventos de progreso + cola de trabajos
 ├── storage/         Persistencia en disco (informes y feedback QR)
 ├── server/          API Express + SSE + página QR
-└── cli.ts           Uso por terminal
+└── cli.ts           Uso por terminal (diagnose.ts: modo diagnóstico)
 public/              Interfaz web (HTML/CSS/JS sin build)
 test/                Unit tests + e2e con Chromium contra una ficha de Maps simulada
 ```
@@ -173,6 +173,32 @@ agentRegistry.register({
 ```
 
 ---
+
+## Modo diagnóstico (validar el scraper contra Google Maps real)
+
+```bash
+npm run diagnose -- "https://maps.app.goo.gl/XXXX"            # sin ventana
+npm run diagnose -- "https://maps.app.goo.gl/XXXX" --visible  # viendo el navegador
+npm run diagnose -- "<url>" --out ./diagnostico-lola          # carpeta de salida propia
+```
+
+Ejecuta **el scraper real** (mismo recorrido y pestañas) y, para cada dato, muestra:
+
+- **Valor obtenido** (el que usa la herramienta) y el **valor crudo** leído de la página.
+- **Selector utilizado**, qué se leyó (`innerText`, `aria-label`, `href`, `data-item-id`, regex…) y en qué posición de la cadena de alternativas ganó (p. ej. "estrategia 2 de 3").
+- **Nivel de confianza**: `alta` (atributo estable de Google), `media` (clase CSS o etiqueta accesible), `baja` (texto/heurística o validación fallida), `ninguna` (no encontrado). Se ajusta con validaciones cruzadas: cantidad de reseñas contra el histograma de estrellas, Place ID único en la página, fotos totales o estimadas, etc.
+- **Fuente exacta**: pestaña, contenedor, fragmento HTML del elemento y texto que coincidió.
+- **Estado**: `OK`, `REVISAR` (confianza baja), `NO ENCONTRADO` o `DISCREPANCIA` (la sonda no reproduce lo que leyó el scraper: hay que sincronizar `src/diagnostics/probeScripts.ts` con `src/scraper/scripts/mapsScripts.ts`).
+
+Salida en `data/diagnostics/<fecha>/`:
+
+| Archivo | Contenido |
+|---|---|
+| `diagnostico.json` | Todos los campos con valor, selector, confianza, fuente, intentos y avisos + resumen + perfil normalizado |
+| `html/ficha.html`, `html/resenas.html`, `html/informacion.html` | HTML exacto de cada pestaña en el momento de la extracción (para ajustar selectores sin volver a abrir Maps) |
+| `screenshots/` | Capturas de cada pestaña |
+
+También detecta bloqueos de Google (captcha / "tráfico inusual") y si apareció el aviso de cookies.
 
 ## Tests
 
