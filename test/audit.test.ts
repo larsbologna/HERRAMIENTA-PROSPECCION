@@ -52,7 +52,6 @@ test('un negocio descuidado genera hallazgos y servicios de alta prioridad', () 
   assert.equal(services['qr-reviews'], 'alta');
   assert.equal(services['maps-optimization'], 'alta');
   assert.ok(services['booking-system']);
-  assert.ok(proposal.potential.projectedScore > proposal.potential.currentScore);
   assert.match(proposal.whatsappMessage, /Restaurante Prueba/);
   assert.match(proposal.whatsappLink ?? '', /^https:\/\/wa\.me\/34600000000/);
 });

@@ -66,13 +66,15 @@ export const mapsRules: AuditRule = ({ profile, vertical, metrics }) => {
     c.finding({ id: 'maps-no-address', area: 'maps', severity: 'medium', title: 'Dirección no visible', detail: 'No se detectó la dirección (puede ser un negocio de zona de servicio).' });
   }
 
-  // Fotos
+  // Fotos: solo se evalúa cuando Maps muestra el total real. Si el número es una estimación
+  // (imágenes visibles en pantalla) no se afirma nada, para no dar un argumento falso al prospecto.
   const photos = profile.photoCount ?? 0;
-  const approx = profile.photoCountIsEstimate ? ' (estimación por fotos visibles)' : '';
-  if (photos < 10) {
-    c.finding({ id: 'maps-few-photos', area: 'maps', severity: profile.photoCountIsEstimate ? 'medium' : 'high', title: 'Muy pocas fotos', detail: `Se detectaron ${photos} fotos${approx}. Las fichas con más de ${vertical.recommendedPhotos} fotos reciben muchas más solicitudes de ruta y clics.` });
-  } else if (photos < vertical.recommendedPhotos) {
-    c.finding({ id: 'maps-low-photos', area: 'maps', severity: 'low', title: 'Pocas fotos para el rubro', detail: `${photos} fotos${approx}; para ${vertical.label.toLowerCase()} se recomiendan al menos ${vertical.recommendedPhotos}.` });
+  if (!profile.photoCountIsEstimate) {
+    if (photos < 10) {
+      c.finding({ id: 'maps-few-photos', area: 'maps', severity: 'high', title: 'Muy pocas fotos', detail: `La ficha tiene ${photos} fotos. Las fichas con más de ${vertical.recommendedPhotos} fotos reciben muchas más solicitudes de ruta y clics.` });
+    } else if (photos < vertical.recommendedPhotos) {
+      c.finding({ id: 'maps-low-photos', area: 'maps', severity: 'low', title: 'Pocas fotos para el rubro', detail: `${photos} fotos; para ${vertical.label.toLowerCase()} se recomiendan al menos ${vertical.recommendedPhotos}.` });
+    }
   }
 
   // Publicaciones

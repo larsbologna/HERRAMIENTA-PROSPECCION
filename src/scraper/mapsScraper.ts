@@ -14,7 +14,8 @@ import {
 } from './scripts/mapsScripts.js';
 
 export interface ScrapeOptions {
-  screenshotDir: string;
+  /** Carpeta para capturas. Si no se indica, no se hacen capturas (más rápido). */
+  screenshotDir?: string;
   onProgress?: (message: string) => void;
   onScreenshot?: (shot: Screenshot) => void;
   /** Máximo de reseñas a muestrear para calcular frecuencia y tasa de respuesta. */
@@ -37,14 +38,18 @@ export interface MapsScrapeResult {
   screenshots: Screenshot[];
 }
 
-const MAPS_HOST = /(^|\.)google\.[a-z.]+$|maps\.app\.goo\.gl|goo\.gl/i;
+/** Dominios de Google: google.com, google.es, google.com.ar, google.co.uk… (y nada más). */
+const GOOGLE_HOST = /^(www\.|maps\.)?google\.(com|[a-z]{2}|com?\.[a-z]{2})$/i;
+const SHORT_HOSTS = new Set(['maps.app.goo.gl', 'goo.gl']);
 
 export function isMapsUrl(raw: string): boolean {
   try {
-    const url = new URL(raw);
-    if (!/^https?:$/.test(url.protocol)) return false;
-    if (/maps\.app\.goo\.gl|goo\.gl/i.test(url.hostname)) return true;
-    return MAPS_HOST.test(url.hostname) && (url.pathname.startsWith('/maps') || url.searchParams.has('cid'));
+    const url = new URL(raw.trim());
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return false;
+    const host = url.hostname.toLowerCase();
+    if (SHORT_HOSTS.has(host)) return host === 'maps.app.goo.gl' || url.pathname.startsWith('/maps');
+    if (!GOOGLE_HOST.test(host)) return false;
+    return host.startsWith('maps.') || url.pathname.startsWith('/maps') || url.searchParams.has('cid');
   } catch {
     return false;
   }
@@ -69,6 +74,7 @@ export async function scrapeMapsProfile(browser: Browser, inputUrl: string, opts
   const page = await context.newPage();
 
   const shoot = async (id: string, label: string, fullPage = false) => {
+    if (!opts.screenshotDir) return;
     const file = path.join('screenshots', `${id}.png`);
     try {
       await page.screenshot({ path: path.join(opts.screenshotDir, `${id}.png`), fullPage });
@@ -259,7 +265,7 @@ function normalizeProfile(
     category: clean(raw.category),
     additionalCategories: [],
     rating: parseRating(raw.ratingText),
-    reviewCount: parseLocaleNumber(raw.reviewsText),
+    reviewCount: parseReviewCount(raw.reviewsText),
     address: stripLabel(raw.address),
     phone: stripLabel(raw.phone) ?? clean(raw.phone),
     website,
@@ -290,6 +296,18 @@ function normalizeProfile(
   if (profile.rating === undefined) warnings.push('No se pudo leer la calificación.');
   if (profile.reviewCount === undefined) warnings.push('No se pudo leer la cantidad de reseñas.');
   return profile;
+}
+
+/**
+ * "23 reseñas" → 23. Si el texto es el bloque completo de calificación ("4,1(23)"),
+ * la cantidad es el número entre paréntesis, no el primero (que es la calificación).
+ */
+export function parseReviewCount(text: string | undefined): number | undefined {
+  if (!text) return undefined;
+  const inParens = text.match(/\(\s*(\d[\d.,]*\s*(?:mil|k)?)\s*\)/i);
+  if (inParens?.[1]) return parseLocaleNumber(inParens[1]);
+  if (/^\s*[0-5][.,]\d\s*$/.test(text)) return undefined; // solo una calificación suelta
+  return parseLocaleNumber(text);
 }
 
 /** Maps envuelve algunos enlaces en /url?q=… : se desenvuelven. */

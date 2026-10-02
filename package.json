@@ -1,33 +1,26 @@
 {
   "name": "herramienta-prospeccion",
   "version": "1.0.0",
-  "description": "Auditoría comercial automática de fichas de Google Maps para Gestores de Presencia Online",
+  "description": "Herramienta simple de prospección: analiza un negocio desde su enlace de Google Maps y genera argumentos de venta, mensaje de WhatsApp y presupuesto.",
   "private": true,
   "type": "module",
-  "main": "dist/server/index.js",
   "scripts": {
-    "dev": "tsx watch src/server/index.ts",
-    "start": "node dist/server/index.js",
-    "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "audit": "tsx src/cli.ts",
-    "test": "node --import tsx --test test/*.test.ts",
+    "start": "tsx src/server.ts --abrir",
+    "analizar": "tsx src/cli.ts",
+    "diagnose": "tsx src/diagnose.ts",
     "setup": "playwright install chromium",
-    "diagnose": "tsx src/diagnose.ts"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --import tsx --test test/utils.test.ts test/audit.test.ts test/salesArguments.test.ts test/budget.test.ts test/diagnostic.test.ts test/e2e.test.ts"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=20.12"
   },
   "dependencies": {
-    "express": "^5.2.1",
     "playwright": "1.56.1",
-    "qrcode": "^1.5.4"
+    "tsx": "^4.19.0"
   },
   "devDependencies": {
-    "@types/express": "^5.0.0",
     "@types/node": "^22.0.0",
-    "@types/qrcode": "^1.5.5",
-    "tsx": "^4.19.0",
     "typescript": "^5.6.0"
   }
 }

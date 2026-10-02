@@ -211,14 +211,6 @@ export interface ServiceRecommendation {
   solves: string[];
 }
 
-export interface ImprovementPotential {
-  currentScore: number;
-  projectedScore: number;
-  /** Etiqueta cualitativa: "Muy alto", "Alto", "Medio", "Bajo". */
-  level: string;
-  explanation: string;
-}
-
 export type SalesImpact = 'Bajo' | 'Medio' | 'Medio-Alto' | 'Alto';
 
 /**
@@ -246,32 +238,51 @@ export interface Proposal {
   /** Un argumento comercial por cada problema detectado, ordenado por impacto. */
   salesArguments: SalesArgument[];
   services: ServiceRecommendation[];
-  potential: ImprovementPotential;
   whatsappMessage: string;
   /** Enlace wa.me listo para abrir (si se conoce el teléfono). */
   whatsappLink?: string;
 }
 
-export interface AuditReport {
-  id: string;
-  createdAt: string;
-  input: { url: string };
-  profile: BusinessProfile;
-  website?: WebsiteAnalysis;
-  audit: AuditResult;
-  proposal: Proposal;
-  executiveSummary: string;
-  screenshots: Screenshot[];
-  /** Aportes de agentes IA (locales o de la FÁBRICA) ejecutados en el pipeline. */
-  agentContributions: AgentContributionRecord[];
-  version: number;
+export interface BudgetItem {
+  id: ServiceId;
+  name: string;
+  priority: Priority;
+  /** Pago inicial (implementación). */
+  setup: number;
+  /** Cuota mensual (mantenimiento / servicio). */
+  monthly: number;
 }
 
-export interface AgentContributionRecord {
-  agentId: string;
-  agentName: string;
-  ok: boolean;
-  error?: string;
-  notes?: string;
+export interface BudgetOption {
+  label: string;
+  description: string;
+  items: BudgetItem[];
+  setup: number;
+  monthly: number;
+  /** Descuento aplicado al pago inicial por contratar varios servicios (0 si no aplica). */
+  discountPct: number;
+  setupAfterDiscount: number;
+}
+
+/** Presupuesto sugerido a partir de los servicios recomendados y de precios.json. */
+export interface Budget {
+  currency: string;
+  note: string;
+  /** Solo servicios de prioridad alta. */
+  recommended: BudgetOption;
+  /** Prioridad alta + media. */
+  complete: BudgetOption;
+}
+
+/** Resultado completo de un análisis (lo que muestra la interfaz). */
+export interface AnalysisResult {
+  url: string;
+  analyzedAt: string;
   durationMs: number;
+  profile: BusinessProfile;
+  website?: WebsiteAnalysis;
+  vertical: { id: string; label: string };
+  audit: AuditResult;
+  proposal: Proposal;
+  budget: Budget;
 }

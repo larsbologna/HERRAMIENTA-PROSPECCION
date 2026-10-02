@@ -1,29 +1,27 @@
 /**
- * Uso: npm run audit -- "<url de Google Maps>" [--pdf]
- * Ejecuta el análisis completo sin interfaz y guarda el informe en DATA_DIR.
+ * Uso por terminal (sin interfaz):  npm run analizar -- "<url de Google Maps>"
  */
-import { runPipeline } from './pipeline/pipeline.js';
+import { analyze } from './analyzer.js';
 import { formatSalesArgumentsText } from './proposal/salesArguments.js';
-import { exportPdf } from './report/pdfExporter.js';
-import { reportDir } from './storage/reportStore.js';
 
-const args = process.argv.slice(2);
-const url = args.find((a) => !a.startsWith('--'));
+const url = process.argv.slice(2).find((a) => !a.startsWith('--'));
 if (!url) {
-  console.error('Uso: npm run audit -- "<url de Google Maps>" [--pdf]');
+  console.error('Uso: npm run analizar -- "<url de Google Maps>"');
   process.exit(1);
 }
 
-const report = await runPipeline(url, {
-  emit: (e) => {
-    if (e.type === 'step') console.log(`${e.status === 'done' ? '✔' : e.status === 'skipped' ? '–' : e.status === 'error' ? '✖' : '…'} ${e.label}`);
-    if (e.type === 'error') console.error(`✖ ${e.message}`);
-  },
-}).catch(() => process.exit(1));
-
-console.log(`\n${report.profile.name} → ${report.audit.overallScore}/100`);
-console.log(report.executiveSummary);
-console.log(`\nInforme: ${reportDir(report.id)}/report.json`);
-if (args.includes('--pdf')) console.log(`PDF: ${await exportPdf(report)}`);
-console.log(`\n${formatSalesArgumentsText(report.profile.name, report.proposal.salesArguments)}`);
-console.log(`\n--- Mensaje WhatsApp ---\n${report.proposal.whatsappMessage}`);
+try {
+  const r = await analyze(url, { onProgress: (p) => console.log(`[${String(p.percent).padStart(3)}%] ${p.message}`) });
+  const money = (n: number) => `${n.toLocaleString('es')} ${r.budget.currency}`;
+  console.log(`\n${r.profile.name} · ${r.profile.category ?? ''} · ${r.profile.rating ?? '—'}★ (${r.profile.reviewCount ?? 0} reseñas)\n`);
+  console.log(formatSalesArgumentsText(r.profile.name, r.proposal.salesArguments));
+  console.log('\n--- PRESUPUESTO SUGERIDO ---');
+  for (const opt of [r.budget.recommended, r.budget.complete]) {
+    console.log(`\n${opt.label}: ${money(opt.setupAfterDiscount)} inicial + ${money(opt.monthly)}/mes${opt.discountPct ? ` (incluye ${opt.discountPct}% de descuento)` : ''}`);
+    for (const i of opt.items) console.log(`  · ${i.name}: ${money(i.setup)} + ${money(i.monthly)}/mes`);
+  }
+  console.log(`\n--- MENSAJE WHATSAPP ---\n${r.proposal.whatsappMessage}`);
+} catch (err) {
+  console.error(`✖ ${(err as Error).message}`);
+  process.exit(1);
+}

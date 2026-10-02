@@ -48,7 +48,7 @@ export function buildWhatsappMessage(ctx: AuditContext, audit: AuditResult, prop
     '',
     `Trabajo justamente en esto: ${offer}.`,
     '',
-    'Preparé un informe gratuito con el análisis completo de su ficha. ¿Les gustaría que se lo envíe? Son 2 minutos de lectura y no tiene compromiso. 🙂',
+    'Hice un análisis completo de su ficha y su web. ¿Les parece si les cuento en 5 minutos lo que encontré y cómo resolverlo? Sin compromiso. 🙂',
   ];
   return lines.join('\n');
 }

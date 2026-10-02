@@ -10,7 +10,9 @@ export async function launchBrowser(): Promise<Browser> {
   return chromium.launch({
     headless: config.browser.headless,
     executablePath: config.browser.executablePath,
-    args: ['--disable-blink-features=AutomationControlled', '--no-sandbox'],
+    // El sandbox de Chromium aísla las webs visitadas. Solo se desactiva cuando el sistema
+    // no lo permite (ejecución como root, p. ej. contenedores).
+    args: ['--disable-blink-features=AutomationControlled', ...(process.getuid?.() === 0 ? ['--no-sandbox'] : [])],
   });
 }
 

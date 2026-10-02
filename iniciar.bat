@@ -1,0 +1,30 @@
+@echo off
+chcp 65001 >nul
+title Herramienta de prospeccion
+cd /d "%~dp0"
+
+where node >nul 2>nul
+if errorlevel 1 (
+  echo.
+  echo  Falta Node.js. Descargalo e instalalo desde https://nodejs.org ^(version LTS^) y volve a abrir este archivo.
+  echo.
+  pause
+  exit /b 1
+)
+
+if not exist node_modules (
+  echo.
+  echo  Primera ejecucion: instalando dependencias ^(puede tardar unos minutos^)...
+  echo.
+  call npm install || goto :error
+  call npx playwright install chromium || goto :error
+)
+
+call npm start
+goto :eof
+
+:error
+echo.
+echo  No se pudo completar la instalacion. Revisa tu conexion a internet y volve a intentarlo.
+pause
+exit /b 1

@@ -1,0 +1,17 @@
+{
+  "moneda": "USD",
+  "nota": "Valores orientativos de ejemplo. Editá precios.json con tus precios reales.",
+  "servicios": {
+    "maps-optimization":  { "pagoInicial": 150, "mensual": 50 },
+    "qr-reviews":         { "pagoInicial": 80,  "mensual": 20 },
+    "website":            { "pagoInicial": 450, "mensual": 25 },
+    "whatsapp-ai-bot":    { "pagoInicial": 250, "mensual": 60 },
+    "admin-dashboard":    { "pagoInicial": 200, "mensual": 30 },
+    "booking-system":     { "pagoInicial": 200, "mensual": 30 },
+    "support-automation": { "pagoInicial": 150, "mensual": 40 }
+  },
+  "descuentoPaquete": {
+    "minimoServicios": 3,
+    "porcentaje": 10
+  }
+}

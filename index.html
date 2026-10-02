@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prospección · Análisis de negocios</title>
+<style>
+  :root {
+    --bg: #0b0d14; --panel: #12151f; --panel-2: #181c29; --line: #232838; --text: #e9ebf3; --muted: #8c93a8;
+    --brand: #7c7cff; --brand-2: #5d5df0; --ok: #22c55e; --high: #ef4444; --medhigh: #f97316; --med: #eab308; --low: #38bdf8;
+    --radius: 16px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 32px 16px 80px; }
+  .hidden { display: none !important; }
+  header { display: flex; align-items: center; gap: 12px; margin-bottom: 28px; }
+  .logo { width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center; background: linear-gradient(135deg, var(--brand), #c084fc); font-weight: 800; color: #fff; }
+  header h1 { font-size: 18px; margin: 0; letter-spacing: -.01em; }
+  header p { margin: 0; color: var(--muted); font-size: 13px; }
+
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 22px; }
+  .search h2 { margin: 0 0 4px; font-size: 24px; letter-spacing: -.02em; }
+  .search p { margin: 0 0 18px; color: var(--muted); }
+  .row { display: flex; gap: 10px; }
+  input[type=url] { flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--line); color: var(--text); border-radius: 12px; padding: 14px 16px; font: inherit; outline: none; }
+  input[type=url]:focus { border-color: var(--brand); box-shadow: 0 0 0 4px rgba(124,124,255,.15); }
+  button, .btn { font: inherit; font-weight: 650; border-radius: 12px; padding: 12px 18px; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+  button:hover, .btn:hover { border-color: #353c55; }
+  .primary { background: linear-gradient(135deg, var(--brand), var(--brand-2)); border-color: transparent; color: #fff; padding: 14px 26px; }
+  .primary:hover { filter: brightness(1.08); }
+  button:disabled { opacity: .55; cursor: progress; }
+  .msg { margin-top: 12px; font-size: 14px; color: #fca5a5; min-height: 0; }
+  .msg:empty { display: none; }
+  .banner { margin-bottom: 18px; padding: 14px 16px; border-radius: 12px; background: rgba(234,179,8,.08); border: 1px solid rgba(234,179,8,.35); color: #fde68a; font-size: 14px; }
+  .banner code { background: rgba(255,255,255,.08); padding: 1px 6px; border-radius: 6px; }
+
+  .progress { margin-top: 18px; }
+  .bar { height: 8px; border-radius: 99px; background: var(--bg); overflow: hidden; border: 1px solid var(--line); }
+  .bar > div { height: 100%; width: 0; background: linear-gradient(90deg, var(--brand), #c084fc); transition: width .45s ease; }
+  .progress-text { display: flex; justify-content: space-between; margin-top: 8px; font-size: 13px; color: var(--muted); }
+  .progress-text b { color: var(--text); font-weight: 650; }
+
+  section.block { margin-top: 26px; }
+  .block-title { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 700; }
+  .block-title .n { width: 22px; height: 22px; border-radius: 7px; background: var(--panel-2); border: 1px solid var(--line); display: grid; place-items: center; font-size: 12px; color: var(--text); }
+
+  .biz-head { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; }
+  .biz-head h3 { margin: 0; font-size: 26px; letter-spacing: -.02em; line-height: 1.2; }
+  .biz-sub { color: var(--muted); margin-top: 4px; }
+  .score { text-align: center; min-width: 96px; }
+  .score b { display: block; font-size: 30px; line-height: 1; }
+  .score span { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; margin-top: 18px; }
+  .fact { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; min-width: 0; }
+  .fact small { display: block; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+  .fact div { overflow-wrap: anywhere; }
+  .fact a { color: #a5a8ff; }
+  .missing { color: #fca5a5; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  .imp { display: inline-block; font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 99px; white-space: nowrap; }
+  .imp-alto { background: rgba(239,68,68,.15); color: #fca5a5; }
+  .imp-medio-alto { background: rgba(249,115,22,.15); color: #fdba74; }
+  .imp-medio { background: rgba(234,179,8,.14); color: #fde047; }
+  .imp-bajo { background: rgba(56,189,248,.13); color: #7dd3fc; }
+
+  .args { display: grid; gap: 12px; }
+  .arg { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--line); border-radius: var(--radius); padding: 18px; }
+  .arg.alto { border-left-color: var(--high); } .arg.medio-alto { border-left-color: var(--medhigh); } .arg.medio { border-left-color: var(--med); } .arg.bajo { border-left-color: var(--low); }
+  .arg-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; margin-bottom: 10px; }
+  .label { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-weight: 700; margin-bottom: 2px; }
+  .arg-problem { font-size: 17px; font-weight: 750; line-height: 1.35; }
+  .arg p { margin: 0; color: #c9cddb; }
+  .arg-grid { display: grid; grid-template-columns: minmax(170px, 1fr) 2fr; gap: 10px; margin-top: 12px; }
+  .arg-grid > div { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+  .service { color: #a5a8ff; font-weight: 700; }
+  .benefit { border-color: rgba(34,197,94,.3) !important; }
+  .empty { color: var(--muted); }
+
+  textarea { width: 100%; min-height: 160px; resize: vertical; overflow: hidden; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 12px; padding: 14px; font: inherit; line-height: 1.5; outline: none; }
+  textarea:focus { border-color: var(--brand); }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .wa { background: #1f9d55; border-color: transparent; color: #fff; }
+
+  .budget { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .plan { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; display: flex; flex-direction: column; }
+  .plan.featured { border-color: rgba(124,124,255,.55); box-shadow: 0 0 0 3px rgba(124,124,255,.12); }
+  .plan h4 { margin: 0; font-size: 17px; }
+  .plan .desc { color: var(--muted); font-size: 13px; margin: 2px 0 12px; }
+  .plan ul { list-style: none; padding: 0; margin: 0 0 14px; display: grid; gap: 6px; }
+  .plan li { display: flex; justify-content: space-between; gap: 10px; font-size: 14px; border-bottom: 1px dashed var(--line); padding-bottom: 6px; }
+  .plan li span:last-child { color: var(--muted); white-space: nowrap; }
+  .totals { margin-top: auto; }
+  .total { display: flex; justify-content: space-between; align-items: baseline; }
+  .total b { font-size: 22px; }
+  .old { text-decoration: line-through; color: var(--muted); font-size: 13px; margin-right: 6px; }
+  .note { color: var(--muted); font-size: 12px; margin-top: 10px; }
+
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 20px); background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 10px; font-weight: 650; opacity: 0; transition: .2s; pointer-events: none; }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+  @media (max-width: 720px) {
+    .row { flex-direction: column; }
+    .biz-head { flex-direction: column; }
+    .score { text-align: left; }
+    .arg-grid, .budget { grid-template-columns: 1fr; }
+    .arg-head { flex-direction: column; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo">P</div>
+    <div><h1>Prospección</h1><p>Analizá un negocio y obtené argumentos de venta en minutos</p></div>
+  </header>
+
+  <div id="offline" class="banner hidden">
+    La herramienta no está iniciada. Abrila con doble clic en <code>iniciar.bat</code> (Windows) o <code>iniciar.command</code> (Mac),
+    o ejecutá <code>npm start</code>. Después recargá esta página.
+  </div>
+
+  <div class="card search">
+    <h2>Analizar negocio</h2>
+    <p>Pegá el enlace de Google Maps del negocio (botón «Compartir» de la ficha).</p>
+    <form id="form" class="row">
+      <input id="url" type="url" required autocomplete="off" placeholder="https://maps.app.goo.gl/…">
+      <button id="go" class="primary" type="submit">Analizar</button>
+    </form>
+    <div id="error" class="msg" role="alert"></div>
+    <div id="progress" class="progress hidden">
+      <div class="bar"><div id="bar"></div></div>
+      <div class="progress-text"><span id="step">Preparando…</span><b id="pct">0%</b></div>
+    </div>
+  </div>
+
+  <div id="result" class="hidden">
+    <section class="block">
+      <h2 class="block-title"><span class="n">1</span> Datos del negocio</h2>
+      <div class="card" id="biz"></div>
+    </section>
+
+    <section class="block">
+      <h2 class="block-title"><span class="n">2</span> Problemas detectados · impacto · motivo · servicio · beneficio</h2>
+      <div class="chips" id="summary"></div>
+      <div class="args" id="args"></div>
+    </section>
+
+    <section class="block">
+      <h2 class="block-title"><span class="n">7</span> Mensaje de WhatsApp</h2>
+      <div class="card">
+        <textarea id="message" spellcheck="true"></textarea>
+        <div class="actions">
+          <button id="copy" type="button">Copiar mensaje</button>
+          <a id="wa" class="btn wa" target="_blank" rel="noopener">Abrir en WhatsApp</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="block">
+      <h2 class="block-title"><span class="n">8</span> Presupuesto sugerido</h2>
+      <div class="budget" id="budget"></div>
+      <div class="note" id="budget-note"></div>
+    </section>
+
+    <div class="actions" style="margin-top:26px"><button id="again" type="button">Analizar otro negocio</button></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+  // Si se abre con doble clic (file://), habla con el servidor local en el puerto por defecto.
+  const API = location.protocol === 'file:' ? 'http://localhost:3000' : '';
+  const $ = (id) => document.getElementById(id);
+  const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  const IMP = { 'Alto': 'alto', 'Medio-Alto': 'medio-alto', 'Medio': 'medio', 'Bajo': 'bajo' };
+  let current = null;
+
+  function toast(text) {
+    const t = $('toast'); t.textContent = text; t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 1800);
+  }
+  function setProgress(pct, text) {
+    $('bar').style.width = pct + '%';
+    $('pct').textContent = Math.round(pct) + '%';
+    if (text) $('step').textContent = text;
+  }
+  function money(n, currency) {
+    try { return new Intl.NumberFormat('es', { style: 'currency', currency, maximumFractionDigits: 0 }).format(n); }
+    catch { return n.toLocaleString('es') + ' ' + currency; }
+  }
+  function waLink(phone, text) {
+    const p = (phone || '').trim();
+    const digits = /^(\+|00)/.test(p) ? p.replace(/\D/g, '').replace(/^00/, '') : '';
+    return 'https://wa.me/' + (digits.length >= 8 ? digits : '') + '?text=' + encodeURIComponent(text);
+  }
+
+  async function checkServer() {
+    try {
+      const r = await fetch(API + '/estado', { cache: 'no-store' });
+      $('offline').classList.toggle('hidden', r.ok);
+    } catch { $('offline').classList.remove('hidden'); }
+  }
+
+  // ---------- 1. Datos del negocio ----------
+  function renderBusiness(d) {
+    const p = d.profile, w = d.website;
+    const fact = (label, value, link) => `<div class="fact"><small>${label}</small><div>${
+      value ? (link ? `<a href="${esc(value)}" target="_blank" rel="noopener">${esc(value)}</a>` : esc(value)) : '<span class="missing">No tiene / no detectado</span>'}</div></div>`;
+    const days = p.hours && Object.keys(p.hours.days || {}).length;
+    const hours = days ? `${days} de 7 días publicados` : (p.hours && p.hours.raw) || '';
+    const web = !p.website ? '' : w && w.isSocialOrDirectory ? p.website + ' (red social / directorio)' : p.website;
+    const secs = Math.max(0.1, (w && w.loadTimeMs || 0) / 1000).toFixed(1).replace('.', ',');
+    const webState = w && !w.isSocialOrDirectory ? (w.reachable ? `Carga en ${secs} s · ${w.mobile.hasViewportMeta ? 'adaptada a móvil' : 'NO adaptada a móvil'} · WhatsApp ${w.whatsapp.hasLink ? 'sí' : 'no'}` : 'No carga') : '';
+    const score = d.audit.overallScore;
+    const color = score >= 75 ? 'var(--ok)' : score >= 50 ? 'var(--med)' : 'var(--high)';
+    const reviewsInfo = p.reviewCount != null ? `${p.reviewCount} reseñas` : '';
+    const rate = d.audit.metrics.ownerResponseRate;
+    $('biz').innerHTML = `
+      <div class="biz-head">
+        <div>
+          <h3>${esc(p.name)}</h3>
+          <div class="biz-sub">${esc([p.category, d.vertical.label].filter(Boolean).join(' · '))}</div>
+        </div>
+        <div class="score"><b style="color:${color}">${score}<small style="font-size:14px;color:var(--muted)">/100</small></b><span>Presencia online</span></div>
+      </div>
+      <div class="facts">
+        ${fact('Calificación', p.rating != null ? `${String(p.rating).replace('.', ',')} ★ · ${reviewsInfo}` : reviewsInfo)}
+        ${fact('Respuesta a reseñas', rate != null ? `${Math.round(rate * 100)}% de las recientes` : '')}
+        ${fact('Teléfono', p.phone)}
+        ${fact('Dirección', p.address)}
+        ${fact('Sitio web', web, !!p.website)}
+        ${webState ? fact('Estado de la web', webState) : ''}
+        ${fact('Horarios', hours)}
+        ${fact('Reservas', p.hasBooking ? (p.bookingUrl || 'Botón de reserva en Maps') : '')}
+      </div>`;
+  }
+
+  // ---------- 2–6. Problemas ----------
+  function renderArguments(list) {
+    const counts = {};
+    list.forEach((a) => { counts[a.impact] = (counts[a.impact] || 0) + 1; });
+    $('summary').innerHTML = list.length
+      ? ['Alto', 'Medio-Alto', 'Medio', 'Bajo'].filter((k) => counts[k]).map((k) => `<span class="imp imp-${IMP[k]}">${counts[k]} de impacto ${k.toLowerCase()}</span>`).join('')
+      : '';
+    $('args').innerHTML = list.length ? list.map((a) => `
+      <article class="arg ${IMP[a.impact]}">
+        <div class="arg-head">
+          <div><div class="label">Problema detectado</div><div class="arg-problem">${esc(a.problem)}</div></div>
+          <div><div class="label">Impacto estimado</div><span class="imp imp-${IMP[a.impact]}">${esc(a.impact)}</span></div>
+        </div>
+        <div class="label">Motivo</div>
+        <p>${esc(a.reason)}</p>
+        <div class="arg-grid">
+          <div><div class="label">Servicio recomendado</div><div class="service">${esc(a.service)}</div></div>
+          <div class="benefit"><div class="label">Beneficio para el cliente</div><p>${esc(a.benefit)}</p></div>
+        </div>
+      </article>`).join('') : '<div class="card empty">No se detectaron problemas relevantes: la presencia online de este negocio está bien trabajada.</div>';
+  }
+
+  // ---------- 8. Presupuesto ----------
+  function renderBudget(b) {
+    const plan = (o, featured) => `
+      <div class="plan ${featured ? 'featured' : ''}">
+        <h4>${esc(o.label)}</h4>
+        <div class="desc">${esc(o.description)}</div>
+        ${o.items.length ? `<ul>${o.items.map((i) => `<li><span>${esc(i.name)}</span><span>${money(i.setup, b.currency)} + ${money(i.monthly, b.currency)}/mes</span></li>`).join('')}</ul>` : '<p class="empty">Sin servicios en este plan.</p>'}
+        <div class="totals">
+          <div class="total"><span>Pago inicial</span><b>${o.discountPct ? `<span class="old">${money(o.setup, b.currency)}</span>` : ''}${money(o.setupAfterDiscount, b.currency)}</b></div>
+          <div class="total"><span>Mensual</span><b>${money(o.monthly, b.currency)}</b></div>
+          ${o.discountPct ? `<div class="note">Incluye ${o.discountPct}% de descuento por paquete en el pago inicial.</div>` : ''}
+        </div>
+      </div>`;
+    const same = b.recommended.items.length === b.complete.items.length;
+    $('budget').innerHTML = plan(b.recommended, true) + (same ? '' : plan(b.complete, false));
+    $('budget').style.gridTemplateColumns = same ? '1fr' : '';
+    $('budget-note').textContent = b.note || '';
+  }
+
+  function render(d) {
+    current = d;
+    renderBusiness(d);
+    renderArguments(d.proposal.salesArguments);
+    $('message').value = d.proposal.whatsappMessage;
+    $('wa').href = waLink(d.profile.phone, d.proposal.whatsappMessage);
+    renderBudget(d.budget);
+    $('result').classList.remove('hidden');
+    fitMessage();
+    $('biz').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  // ---------- Análisis (respuesta en streaming, una línea JSON por evento) ----------
+  async function run(url) {
+    $('error').textContent = '';
+    $('go').disabled = true;
+    $('result').classList.add('hidden');
+    $('progress').classList.remove('hidden');
+    setProgress(2, 'Iniciando…');
+    let finished = false;
+    try {
+      const res = await fetch(API + '/analizar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }) });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || 'Error ' + res.status);
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          const ev = JSON.parse(line);
+          if (ev.tipo === 'progreso') setProgress(ev.porcentaje, ev.mensaje);
+          else if (ev.tipo === 'resultado') { finished = true; setProgress(100, 'Análisis completado'); render(ev.datos); }
+          else if (ev.tipo === 'error') { finished = true; throw new Error(ev.mensaje); }
+        }
+      }
+      if (!finished) throw new Error('La conexión con la herramienta se interrumpió. Probá de nuevo.');
+      setTimeout(() => $('progress').classList.add('hidden'), 900);
+    } catch (err) {
+      $('progress').classList.add('hidden');
+      $('error').textContent = err instanceof TypeError
+        ? 'No se pudo conectar con la herramienta. ¿Está iniciada? (iniciar.bat / iniciar.command o npm start)'
+        : err.message;
+      checkServer();
+    } finally {
+      $('go').disabled = false;
+    }
+  }
+
+  $('form').addEventListener('submit', (e) => { e.preventDefault(); run($('url').value.trim()); });
+  // El cuadro del mensaje crece con el texto para verlo completo antes de copiarlo.
+  function fitMessage() { const t = $('message'); t.style.height = 'auto'; t.style.height = (t.scrollHeight + 4) + 'px'; }
+  $('message').addEventListener('input', () => { fitMessage(); if (current) $('wa').href = waLink(current.profile.phone, $('message').value); });
+  $('copy').addEventListener('click', async () => {
+    const text = $('message').value;
+    try { await navigator.clipboard.writeText(text); }
+    catch { $('message').select(); document.execCommand('copy'); }
+    toast('Mensaje copiado');
+  });
+  $('again').addEventListener('click', () => {
+    $('result').classList.add('hidden');
+    $('url').value = '';
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    $('url').focus();
+  });
+  checkServer();
+</script>
+</body>
+</html>

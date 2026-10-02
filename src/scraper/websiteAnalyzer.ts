@@ -6,7 +6,8 @@ import { newDesktopContext, newMobileContext } from './browser.js';
 import { EXTRACT_WEBSITE, type RawWebsite } from './scripts/websiteScripts.js';
 
 export interface WebsiteOptions {
-  screenshotDir: string;
+  /** Carpeta para capturas. Si no se indica, no se hacen capturas. */
+  screenshotDir?: string;
   onProgress?: (message: string) => void;
   onScreenshot?: (shot: Screenshot) => void;
 }
@@ -102,6 +103,7 @@ export async function analyzeWebsite(browser: Browser, url: string, opts: Websit
 }
 
 async function capture(page: Page, id: string, label: string, source: Screenshot['source'], opts: WebsiteOptions) {
+  if (!opts.screenshotDir) return;
   const file = path.join('screenshots', `${id}.png`);
   await page.screenshot({ path: path.join(opts.screenshotDir, `${id}.png`), fullPage: false });
   opts.onScreenshot?.({ id, label, file, source });
