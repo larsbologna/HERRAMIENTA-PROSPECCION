@@ -30,6 +30,16 @@ test('plan recomendado (prioridad alta) y plan completo (alta + media) con descu
   assert.equal(b.complete.discountPct, 10);
   assert.equal(b.complete.setupAfterDiscount, 630);
   assert.equal(b.complete.monthly, 80);
+  // Totales con 12 meses de contrato (valor por defecto)
+  assert.equal(b.recommended.contractMonths, 12);
+  assert.equal(b.recommended.total, 500 + 30 * 12);
+  assert.equal(b.potentialValue, b.recommended.total);
+  assert.equal(b.projectTotal, 630 + 80 * 12);
+});
+
+test('mesesContrato configurable', () => {
+  const b = buildBudget([svc('website', 'alta')], { ...prices, mesesContrato: 6 });
+  assert.equal(b.recommended.total, 400 + 20 * 6);
 });
 
 test('el plan recomendado tiene como máximo 3 servicios; sin prioridad alta usa los de media', () => {
@@ -44,7 +54,7 @@ test('servicios sin precio se omiten y precios.json del proyecto es válido', ()
   const b = buildBudget([svc('booking-system', 'alta')], prices);
   assert.equal(b.recommended.items.length, 0);
   const real = loadPriceList();
-  assert.equal(typeof real.moneda, 'string');
+  assert.equal(real.moneda, 'ARS');
   for (const id of ['maps-optimization', 'qr-reviews', 'website', 'whatsapp-ai-bot', 'admin-dashboard', 'booking-system', 'support-automation']) {
     assert.ok(real.servicios[id as keyof typeof real.servicios], `precios.json no tiene precio para ${id}`);
   }

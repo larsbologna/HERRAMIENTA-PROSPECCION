@@ -262,6 +262,10 @@ export interface BudgetOption {
   /** Descuento aplicado al pago inicial por contratar varios servicios (0 si no aplica). */
   discountPct: number;
   setupAfterDiscount: number;
+  /** Meses de contrato considerados para el total (precios.json → mesesContrato). */
+  contractMonths: number;
+  /** Pago inicial con descuento + cuota mensual × meses de contrato. */
+  total: number;
 }
 
 /** Presupuesto sugerido a partir de los servicios recomendados y de precios.json. */
@@ -272,6 +276,10 @@ export interface Budget {
   recommended: BudgetOption;
   /** Prioridad alta + media. */
   complete: BudgetOption;
+  /** Valor potencial del prospecto: total del plan recomendado. */
+  potentialValue: number;
+  /** Total del proyecto: total del plan completo. */
+  projectTotal: number;
 }
 
 /** Resultado completo de un análisis (lo que muestra la interfaz). */

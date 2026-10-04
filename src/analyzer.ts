@@ -1,7 +1,7 @@
 import type { Browser } from 'playwright';
 import { buildContext, runAudit } from './auditor/auditor.js';
 import { config } from './config/index.js';
-import type { AnalysisResult, WebsiteAnalysis } from './domain/types.js';
+import type { AnalysisResult, BusinessProfile, WebsiteAnalysis } from './domain/types.js';
 import { buildBudget } from './proposal/budget.js';
 import { buildProposal } from './proposal/proposalEngine.js';
 import { launchBrowser } from './scraper/browser.js';
@@ -86,18 +86,29 @@ async function run(browser: Browser, url: string, report: (p: Progress) => void,
   }
 
   report({ percent: 85, message: 'Detectando problemas y oportunidades…' });
+  const result = buildAnalysis(url, profile, website, { durationMs: Date.now() - started });
+  report({ percent: 100, message: 'Análisis completado.' });
+  return result;
+}
+
+/**
+ * Auditoría → argumentos comerciales → mensaje → presupuesto, a partir de datos ya leídos.
+ * Pura (sin navegador): la usa el análisis en vivo y la importación de informes antiguos.
+ */
+export function buildAnalysis(
+  url: string,
+  profile: BusinessProfile,
+  website: WebsiteAnalysis | undefined,
+  meta: { durationMs: number; analyzedAt?: string },
+): AnalysisResult {
   const ctx = buildContext(profile, website);
   const audit = runAudit(ctx);
   const proposal = buildProposal(ctx, audit);
-
-  report({ percent: 95, message: 'Calculando presupuesto…' });
   const budget = buildBudget(proposal.services);
-
-  report({ percent: 100, message: 'Análisis completado.' });
   return {
     url,
-    analyzedAt: new Date().toISOString(),
-    durationMs: Date.now() - started,
+    analyzedAt: meta.analyzedAt ?? new Date().toISOString(),
+    durationMs: meta.durationMs,
     profile,
     website,
     vertical: { id: ctx.vertical.id, label: ctx.vertical.label },

@@ -9,6 +9,8 @@ export interface PriceList {
   nota?: string;
   servicios: Partial<Record<ServiceId, { pagoInicial: number; mensual: number }>>;
   descuentoPaquete?: { minimoServicios: number; porcentaje: number };
+  /** Meses de cuota que se suman al valor potencial y al total del proyecto (por defecto 12). */
+  mesesContrato?: number;
 }
 
 /** Lee precios.json en cada análisis: los cambios se aplican sin reiniciar. */
@@ -34,6 +36,8 @@ function option(label: string, description: string, services: ServiceRecommendat
   const monthly = items.reduce((sum, i) => sum + i.monthly, 0);
   const pack = prices.descuentoPaquete;
   const discountPct = pack && items.length >= pack.minimoServicios ? pack.porcentaje : 0;
+  const setupAfterDiscount = Math.round(setup * (1 - discountPct / 100));
+  const contractMonths = contractMonthsOf(prices);
   return {
     label,
     description,
@@ -41,8 +45,15 @@ function option(label: string, description: string, services: ServiceRecommendat
     setup,
     monthly,
     discountPct,
-    setupAfterDiscount: Math.round(setup * (1 - discountPct / 100)),
+    setupAfterDiscount,
+    contractMonths,
+    total: setupAfterDiscount + monthly * contractMonths,
   };
+}
+
+function contractMonthsOf(prices: PriceList): number {
+  const m = Number(prices.mesesContrato);
+  return Number.isFinite(m) && m >= 0 ? Math.round(m) : 12;
 }
 
 /** Máximo de servicios del plan recomendado: una oferta de entrada concreta y fácil de aceptar. */
@@ -53,15 +64,19 @@ export function buildBudget(services: ServiceRecommendation[], prices: PriceList
   const priced = services.filter((s) => prices.servicios[s.id]);
   const high = priced.filter((s) => s.priority === 'alta');
   const highAndMedium = priced.filter((s) => s.priority !== 'baja');
+  const recommended = option(
+    'Plan recomendado',
+    'Los servicios que resuelven los problemas de mayor impacto.',
+    (high.length ? high : highAndMedium).slice(0, RECOMMENDED_MAX),
+    prices,
+  );
+  const complete = option('Plan completo', 'Todos los servicios de prioridad alta y media.', highAndMedium, prices);
   return {
     currency: prices.moneda,
     note: prices.nota ?? '',
-    recommended: option(
-      'Plan recomendado',
-      'Los servicios que resuelven los problemas de mayor impacto.',
-      (high.length ? high : highAndMedium).slice(0, RECOMMENDED_MAX),
-      prices,
-    ),
-    complete: option('Plan completo', 'Todos los servicios de prioridad alta y media.', highAndMedium, prices),
+    recommended,
+    complete,
+    potentialValue: recommended.total,
+    projectTotal: complete.total,
   };
 }

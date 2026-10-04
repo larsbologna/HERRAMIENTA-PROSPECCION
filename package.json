@@ -10,10 +10,10 @@
     "diagnose": "tsx src/diagnose.ts",
     "setup": "playwright install chromium",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --import tsx --test test/utils.test.ts test/audit.test.ts test/salesArguments.test.ts test/budget.test.ts test/diagnostic.test.ts test/e2e.test.ts"
+    "test": "node --import tsx --test test/utils.test.ts test/audit.test.ts test/salesArguments.test.ts test/budget.test.ts test/crm.test.ts test/diagnostic.test.ts test/e2e.test.ts"
   },
   "engines": {
-    "node": ">=20.12"
+    "node": ">=22.13"
   },
   "dependencies": {
     "playwright": "1.56.1",
