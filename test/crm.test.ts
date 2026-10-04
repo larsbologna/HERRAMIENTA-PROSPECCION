@@ -225,3 +225,39 @@ test('importa informes de la primera versión una sola vez', () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('migración multiusuario: una base de la V2 se actualiza sin perder prospectos ni historial', async () => {
+  const { MIGRATIONS } = await import('../src/db/database.js');
+  const { DatabaseSync } = await import('node:sqlite');
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'mig-'));
+  try {
+    const file = path.join(dir, 'v2.db');
+    // Base creada con el esquema de la V2 (solo la migración 1)
+    const old = new DatabaseSync(file);
+    old.exec(MIGRATIONS[0]!);
+    old.exec('PRAGMA user_version = 1');
+    old.close();
+    // Datos cargados por la V2
+    const dbOld = new DatabaseSync(file);
+    dbOld.exec(`INSERT INTO prospects (id, dedupe_key, name, maps_url, score, analyzed_at, created_at, updated_at, last_activity_at, status, max_stage, notes)
+      VALUES ('p1', 'k1', 'Bar Viejo', 'u', 40, '2026-01-01', '2026-01-01', '2026-01-01', '2026-01-01', 'reunion', 3, 'nota vieja')`);
+    dbOld.exec(`INSERT INTO activities (prospect_id, type, content, from_status, to_status, created_at) VALUES
+      ('p1', 'creado', 'x', NULL, NULL, '2026-01-01'), ('p1', 'estado', '', 'sin_contactar', 'reunion', '2026-01-02')`);
+    dbOld.close();
+
+    const repo = new CrmRepository(openDatabase(file), () => basePrices);
+    const p = repo.get('p1');
+    assert.equal(p.name, 'Bar Viejo');
+    assert.equal(p.status, 'reunion');
+    assert.equal(p.notes, 'nota vieja');
+    assert.equal(p.assignedUserId, null);
+    assert.equal(p.activities.length, 2);
+    assert.equal(p.activities.find((a) => a.type === 'estado')?.toStatus, 'reunion');
+    assert.deepEqual(p.followups, []);
+    // Nuevas actividades con autor y sin prospecto (login) funcionan sobre la tabla migrada
+    repo.logSystem('login', null);
+    assert.equal(repo.activityLog({ type: 'login' }).length, 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

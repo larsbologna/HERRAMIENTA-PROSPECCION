@@ -2,25 +2,44 @@ import { readFile } from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
 import { analyze as defaultAnalyze } from '../analyzer.js';
+import { LoginRateLimiter } from '../auth/rateLimit.js';
+import { ROLES, type Role, type User, type UserRepository } from '../auth/users.js';
 import { ROOT_DIR, config } from '../config/index.js';
 import { DB_FILE } from '../crm/index.js';
-import type { CrmRepository } from '../crm/repository.js';
-import { dashboard, metrics } from '../crm/stats.js';
-import { ACTIVITY_TYPES, MANUAL_ACTIVITY_TYPES, STATUSES, isStatus, type ProspectFilter, type Settings } from '../crm/types.js';
-import { VERTICALS, DEFAULT_VERTICAL } from '../domain/verticals.js';
+import { NotFoundError, endOfToday, type CrmRepository } from '../crm/repository.js';
+import { dashboard, metrics, personalKpis } from '../crm/stats.js';
+import { ACTIVITY_TYPES, MANUAL_ACTIVITY_TYPES, STATUSES, isStatus, type FollowupStatus, type ProspectFilter, type Settings } from '../crm/types.js';
+import { DEFAULT_VERTICAL, VERTICALS } from '../domain/verticals.js';
 import { buildMessages } from '../messages/whatsapp.js';
 import { SERVICE_CATALOG } from '../proposal/services.js';
-import { HttpError, Router, readJson, sendJson } from './http.js';
+import {
+  HttpError,
+  Router,
+  clientIp,
+  isDirectLocal,
+  isHttps,
+  parseCookies,
+  readJson,
+  requestOrigin,
+  sendJson,
+  serializeCookie,
+} from './http.js';
 
 export interface AppDeps {
   repo: CrmRepository;
+  users: UserRepository;
   /** Función de análisis (se sustituye en tests). */
   analyze?: typeof defaultAnalyze;
   /** Carpeta de la interfaz web. */
   webDir?: string;
   /** Registro de actividad en la consola (se silencia en tests). */
   log?: (message: string) => void;
+  /** Sobrescribe opciones de proxy/seguridad (tests). */
+  security?: Partial<Pick<typeof config, 'trustProxy' | 'publicUrl' | 'cookieSecure' | 'setupToken'>>;
 }
+
+const COOKIE = 'pros_sid';
+const ADMIN: Role[] = ['admin'];
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -32,75 +51,186 @@ const MIME: Record<string, string> = {
   '.woff2': 'font/woff2',
 };
 
-const SELLER_DEFAULTS: Settings = {
-  sellerName: config.seller.name === '[tu nombre]' ? '' : config.seller.name,
-  sellerBusiness: config.seller.business,
-  sellerCity: '',
+/** Cabeceras de seguridad para todas las respuestas. */
+const SECURITY_HEADERS: Record<string, string> = {
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Referrer-Policy': 'same-origin',
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+  'Content-Security-Policy': [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com",
+    "img-src 'self' data:",
+    "connect-src 'self'",
+    "frame-ancestors 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+  ].join('; '),
 };
 
-/** Orígenes de la propia app. Las peticiones de otras webs abiertas en el navegador se rechazan. */
-function sameApp(origin: string | undefined, port: number): boolean {
-  if (!origin) return true; // curl, tests, navegación directa
-  return origin === `http://localhost:${port}` || origin === `http://127.0.0.1:${port}`;
-}
-
 export function createApp(deps: AppDeps): http.Server {
-  const { repo } = deps;
+  const { repo, users } = deps;
   const runAnalysis = deps.analyze ?? defaultAnalyze;
   const webDir = deps.webDir ?? path.join(ROOT_DIR, 'web');
   const log = deps.log ?? ((m: string) => console.log(m));
-  let busy = false;
-  const settings = () => repo.settings(SELLER_DEFAULTS);
+  const sec = { trustProxy: config.trustProxy, publicUrl: config.publicUrl, cookieSecure: config.cookieSecure, setupToken: config.setupToken, ...deps.security };
+  const limiter = new LoginRateLimiter();
+  const ipLimiter = new LoginRateLimiter(30);
+  let busy: { userName: string } | null = null;
+
+  const isAdmin = (u: User) => u.role === 'admin';
+  const secureCookie = (req: http.IncomingMessage) => (sec.cookieSecure === 'true' ? true : sec.cookieSecure === 'false' ? false : isHttps(req, sec.trustProxy));
+  const setSessionCookie = (req: http.IncomingMessage, res: http.ServerResponse, token: string) =>
+    res.setHeader('Set-Cookie', serializeCookie(COOKIE, token, { maxAge: users.sessionDays * 86_400, secure: secureCookie(req) }));
+  const clearSessionCookie = (req: http.IncomingMessage, res: http.ServerResponse) =>
+    res.setHeader('Set-Cookie', serializeCookie(COOKIE, '', { maxAge: 0, secure: secureCookie(req) }));
+  const publicUser = (u: User) => ({ id: u.id, name: u.name, username: u.username, email: u.email, role: u.role });
+
+  const globalSettings = (): Settings => repo.settings({ sellerName: '', sellerBusiness: config.seller.business, sellerCity: '' });
+  /** Los mensajes de WhatsApp firman con el nombre del usuario conectado. */
+  const sellerFor = (u: User) => {
+    const s = globalSettings();
+    return { sellerName: u.name || s.sellerName, sellerCity: s.sellerCity, sellerBusiness: s.sellerBusiness };
+  };
+  /** Un vendedor solo accede a sus prospectos; a los ajenos responde "no encontrado". */
+  const ensureAccess = (u: User, prospectId: string) => {
+    const assignee = repo.assigneeOf(prospectId);
+    if (assignee === undefined || (!isAdmin(u) && assignee !== u.id)) throw new NotFoundError('Prospecto no encontrado.');
+  };
+  const detailFor = (u: User, id: string) => {
+    const detail = repo.get(id);
+    return { ...detail, messages: buildMessages(detail, sellerFor(u)) };
+  };
 
   const router = new Router()
-    .on('GET', '/api/estado', () => ({ ok: true, ocupado: busy }))
+    // ================================================================ público
+    .on('GET', '/api/estado', () => ({ ok: true, ocupado: !!busy }), { public: true })
 
-    .on('GET', '/api/meta', () => ({
+    .on('GET', '/api/auth/estado', ({ req }) => ({
+      setupRequired: users.count() === 0,
+      // Solo se puede crear el primer administrador desde esta máquina o con SETUP_TOKEN.
+      setupAllowed: users.count() === 0 && (isDirectLocal(req) || !!sec.setupToken),
+      setupNeedsToken: users.count() === 0 && !isDirectLocal(req) && !!sec.setupToken,
+    }), { public: true })
+
+    .on('POST', '/api/auth/setup', async ({ req, res }) => {
+      const body = await readJson<Record<string, string>>(req);
+      if (users.count() > 0) throw new HttpError(409, 'El administrador inicial ya fue creado. Iniciá sesión.');
+      const tokenOk = !!sec.setupToken && body.setupToken === sec.setupToken;
+      if (!isDirectLocal(req) && !tokenOk) {
+        throw new HttpError(403, 'Por seguridad, el primer administrador se crea desde la misma computadora o con el SETUP_TOKEN configurado en el servidor.');
+      }
+      const user = await users.create({ name: body.name, email: body.email || null, username: body.username, password: body.password, role: 'admin' });
+      const { token } = users.createSession(user.id, { ip: clientIp(req, sec.trustProxy), userAgent: req.headers['user-agent'] });
+      setSessionCookie(req, res, token);
+      repo.logSystem('usuario', user.id, `Administrador inicial creado: ${user.username}`);
+      repo.logSystem('login', user.id, clientIp(req, sec.trustProxy));
+      return { user: publicUser(user) };
+    }, { public: true })
+
+    .on('POST', '/api/auth/login', async ({ req, res }) => {
+      const body = await readJson<{ username?: unknown; password?: unknown }>(req);
+      const username = String(body.username ?? '').trim().toLowerCase();
+      const ip = clientIp(req, sec.trustProxy);
+      const key = `${ip}|${username}`;
+      const wait = Math.max(limiter.blockedFor(key), ipLimiter.blockedFor(ip));
+      if (wait) throw new HttpError(429, `Demasiados intentos. Probá de nuevo en ${Math.ceil(wait / 60)} minuto(s).`);
+      const user = await users.verifyCredentials(username, String(body.password ?? ''));
+      if (!user) {
+        limiter.fail(key);
+        ipLimiter.fail(ip);
+        throw new HttpError(401, 'Usuario o contraseña incorrectos.');
+      }
+      limiter.success(key);
+      const { token } = users.createSession(user.id, { ip, userAgent: req.headers['user-agent'] });
+      setSessionCookie(req, res, token);
+      repo.logSystem('login', user.id, ip);
+      return { user: publicUser(user) };
+    }, { public: true })
+
+    // ================================================================ sesión
+    .on('POST', '/api/auth/logout', ({ req, res, user }) => {
+      users.deleteSession(parseCookies(req.headers.cookie)[COOKIE]);
+      clearSessionCookie(req, res);
+      repo.logSystem('logout', user.id, clientIp(req, sec.trustProxy));
+      return { ok: true };
+    })
+    .on('GET', '/api/auth/me', ({ user }) => ({ user: publicUser(user) }))
+    .on('PUT', '/api/auth/password', async ({ req, res, user }) => {
+      const body = await readJson<{ current?: string; next?: string }>(req);
+      await users.changeOwnPassword(user.id, String(body.current ?? ''), String(body.next ?? ''));
+      // Cierra las demás sesiones: se crea una nueva para este navegador.
+      users.deleteSession(parseCookies(req.headers.cookie)[COOKIE]);
+      const { token } = users.createSession(user.id, { ip: clientIp(req, sec.trustProxy), userAgent: req.headers['user-agent'] });
+      setSessionCookie(req, res, token);
+      repo.logSystem('usuario', user.id, 'Cambió su contraseña');
+      return { ok: true };
+    })
+
+    .on('GET', '/api/meta', ({ user }) => ({
       statuses: STATUSES,
       activityTypes: MANUAL_ACTIVITY_TYPES.map((id) => ({ id, label: ACTIVITY_TYPES[id] })),
       verticals: [...VERTICALS, DEFAULT_VERTICAL].map((v) => ({ id: v.id, label: v.label })),
       services: Object.values(SERVICE_CATALOG).map((s) => ({ id: s.id, name: s.name })),
+      roles: ROLES,
+      // Los administradores reciben la lista de usuarios para asignar prospectos.
+      users: isAdmin(user) ? users.list().map((u) => ({ id: u.id, name: u.name, role: u.role, active: u.active })) : [],
     }))
 
-    // ---------------- Análisis (progreso en streaming, una línea JSON por evento)
-    .on('POST', '/api/analizar', async ({ req, res }) => {
-      if (busy) throw new HttpError(409, 'Ya hay un análisis en curso. Esperá a que termine.');
+    // ================================================================ análisis
+    .on('POST', '/api/analizar', async ({ req, res, user }) => {
+      if (busy) throw new HttpError(409, `Ya hay un análisis en curso (${busy.userName}). Esperá a que termine.`);
       const body = await readJson<{ url?: unknown }>(req);
       const target = String(body.url ?? '').trim();
       if (!target) throw new HttpError(400, 'Pegá el enlace de Google Maps del negocio.');
 
-      busy = true;
+      busy = { userName: user.name };
       const controller = new AbortController();
       res.on('close', () => {
         if (!res.writableFinished) controller.abort();
       });
-      res.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-cache' });
+      // X-Accel-Buffering: Nginx no acumula el progreso (llega en vivo).
+      res.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no' });
       const line = (obj: unknown) => {
         if (!res.writableEnded) res.write(`${JSON.stringify(obj)}\n`);
       };
-      log(`→ Analizando ${target.slice(0, 80)}`);
+      // Latido: mantiene viva la conexión a través de proxies (Cloudflare corta tras 100 s sin datos).
+      const heartbeat = setInterval(() => line({ tipo: 'latido' }), 15_000);
+      log(`→ ${user.username} analiza ${target.slice(0, 80)}`);
       try {
         const result = await runAnalysis(target, {
           signal: controller.signal,
           onProgress: (p) => line({ tipo: 'progreso', porcentaje: Math.min(p.percent, 98), mensaje: p.message }),
         });
-        const saved = repo.saveAnalysis(result);
+        const saved = repo.saveAnalysis(result, { userId: user.id });
+        const accessible = isAdmin(user) || saved.assignedUserId === user.id;
         line({ tipo: 'progreso', porcentaje: 100, mensaje: saved.created ? 'Prospecto guardado.' : 'Prospecto actualizado con el nuevo análisis.' });
-        line({ tipo: 'resultado', prospectId: saved.id, creado: saved.created, nombre: result.profile.name, score: result.audit.overallScore });
+        line({
+          tipo: 'resultado',
+          prospectId: accessible ? saved.id : null,
+          creado: saved.created,
+          accesible: accessible,
+          nombre: result.profile.name,
+          score: result.audit.overallScore,
+        });
         log(`✔ ${result.profile.name} (${(result.durationMs / 1000).toFixed(1)} s) ${saved.created ? 'nuevo' : 'reanalizado'}`);
       } catch (err) {
         line({ tipo: 'error', mensaje: (err as Error).message });
         log(`✖ ${(err as Error).message}`);
       } finally {
-        busy = false;
+        clearInterval(heartbeat);
+        busy = null;
         res.end();
       }
       return undefined;
     })
 
-    // ---------------- Prospectos
-    .on('GET', '/api/prospects', ({ query }) => {
+    // ================================================================ prospectos
+    .on('GET', '/api/prospects', ({ query, user }) => {
       const num = (k: string) => (query.has(k) && query.get(k) !== '' ? Number(query.get(k)) : undefined);
+      const assigned = query.get('assigned') || undefined;
       const filter: ProspectFilter = {
         q: query.get('q') ?? undefined,
         status: query.get('status') ?? undefined,
@@ -109,64 +239,161 @@ export function createApp(deps: AppDeps): http.Server {
         maxScore: num('maxScore'),
         sort: (query.get('sort') as ProspectFilter['sort']) ?? undefined,
         dir: query.get('dir') === 'asc' ? 'asc' : 'desc',
+        // Vendedor: siempre solo los suyos. Admin: todos, sin asignar, los suyos o los de un vendedor.
+        assignedTo: !isAdmin(user) ? user.id : assigned === 'me' ? user.id : assigned,
       };
       return { items: repo.list(filter) };
     })
-    .on('GET', '/api/prospects/:id', ({ params }) => {
-      const detail = repo.get(params.id!);
-      return { ...detail, messages: buildMessages(detail, settings()) };
+    .on('GET', '/api/prospects/:id', ({ params, user }) => {
+      ensureAccess(user, params.id!);
+      return detailFor(user, params.id!);
     })
-    .on('PATCH', '/api/prospects/:id', async ({ req, params }) => {
+    .on('PATCH', '/api/prospects/:id', async ({ req, params, user }) => {
+      ensureAccess(user, params.id!);
       const body = await readJson<Record<string, unknown>>(req);
       if (body.status !== undefined && !isStatus(body.status)) throw new HttpError(400, 'Estado inválido.');
-      const detail = repo.update(params.id!, {
-        status: body.status as never,
-        notes: body.notes === undefined ? undefined : String(body.notes),
-        closedValue: body.closedValue === undefined ? undefined : body.closedValue === null || body.closedValue === '' ? null : Number(body.closedValue),
-      });
-      return { ...detail, messages: buildMessages(detail, settings()) };
+      if (body.assignedUserId !== undefined && !isAdmin(user)) throw new HttpError(403, 'Solo un administrador puede reasignar prospectos.');
+      repo.update(
+        params.id!,
+        {
+          status: body.status as never,
+          notes: body.notes === undefined ? undefined : String(body.notes),
+          closedValue: body.closedValue === undefined ? undefined : body.closedValue === null || body.closedValue === '' ? null : Number(body.closedValue),
+          assignedUserId: body.assignedUserId === undefined ? undefined : body.assignedUserId ? String(body.assignedUserId) : null,
+        },
+        user.id,
+      );
+      return detailFor(user, params.id!);
     })
     .on('DELETE', '/api/prospects/:id', ({ params }) => {
       repo.delete(params.id!);
       return { ok: true };
-    })
-    .on('POST', '/api/prospects/:id/activities', async ({ req, params }) => {
+    }, { roles: ADMIN })
+    .on('POST', '/api/prospects/assign', async ({ req, user }) => {
+      const body = await readJson<{ ids?: unknown; userId?: unknown }>(req);
+      const ids = Array.isArray(body.ids) ? body.ids.map(String).slice(0, 1000) : [];
+      if (!ids.length) throw new HttpError(400, 'Elegí al menos un prospecto.');
+      const target = body.userId ? String(body.userId) : null;
+      for (const id of ids) repo.update(id, { assignedUserId: target }, user.id);
+      return { ok: true, count: ids.length };
+    }, { roles: ADMIN })
+    .on('POST', '/api/prospects/:id/activities', async ({ req, params, user }) => {
+      ensureAccess(user, params.id!);
       const body = await readJson<{ type?: unknown; content?: unknown }>(req);
-      return repo.addActivity(params.id!, String(body.type ?? ''), String(body.content ?? ''));
+      return repo.addActivity(params.id!, String(body.type ?? ''), String(body.content ?? ''), user.id);
     })
 
-    // ---------------- Vistas agregadas
-    .on('GET', '/api/dashboard', () => dashboard(repo.allForStats(), repo.statusChanges()))
-    .on('GET', '/api/metrics', () => metrics(repo.allForStats()))
-    .on('GET', '/api/audits', () => ({ items: repo.audits({ limit: 1000 }) }))
+    // ================================================================ seguimientos
+    .on('POST', '/api/prospects/:id/followups', async ({ req, params, user }) => {
+      ensureAccess(user, params.id!);
+      const body = await readJson<{ dueAt?: unknown; note?: unknown }>(req);
+      return repo.addFollowup(params.id!, { dueAt: String(body.dueAt ?? ''), note: String(body.note ?? '') }, user.id);
+    })
+    .on('PATCH', '/api/followups/:id', async ({ req, params, user }) => {
+      const f = repo.followup(Number(params.id));
+      if (!f) throw new NotFoundError('Seguimiento no encontrado.');
+      ensureAccess(user, f.prospectId);
+      const body = await readJson<{ status?: unknown }>(req);
+      return repo.setFollowupStatus(f.id, String(body.status ?? '') as FollowupStatus, user.id);
+    })
+    .on('GET', '/api/followups', ({ query, user }) => {
+      // Vendedor: los suyos. Admin: los suyos por defecto, o de todo el equipo con ?scope=equipo.
+      const team = isAdmin(user) && query.get('scope') === 'equipo';
+      return {
+        items: repo.followups({ userId: team ? undefined : user.id, until: query.get('hasta') === 'hoy' ? endOfToday() : undefined }),
+      };
+    })
 
-    // ---------------- Configuración
+    // ================================================================ dashboard y métricas
+    .on('GET', '/api/dashboard', ({ user }) => {
+      // Los números del equipo completo son solo para administradores; un vendedor ve los suyos.
+      const scope = isAdmin(user) ? undefined : user.id;
+      const base = dashboard(repo.allForStats(scope), repo.statusChanges(scope));
+      const today = endOfToday();
+      const mineDue = repo.followups({ userId: user.id, until: today });
+      const overdue = mineDue.filter((f) => f.overdue).length;
+      const teamDue = isAdmin(user) ? repo.followups({ until: today }) : mineDue;
+      return {
+        ...base,
+        personal: personalKpis(repo.allForStats(user.id), mineDue.length, overdue),
+        followupsDue: teamDue.slice(0, 12),
+        followupsDueCount: teamDue.length,
+        scope: isAdmin(user) ? 'equipo' : 'personal',
+      };
+    })
+    .on('GET', '/api/metrics', () => metrics(repo.allForStats()), { roles: ADMIN })
+    .on('GET', '/api/audits', () => ({ items: repo.audits({ limit: 1000 }) }), { roles: ADMIN })
+    .on('GET', '/api/activity', ({ query }) => ({
+      items: repo.activityLog({ userId: query.get('userId') || undefined, type: query.get('type') || undefined, limit: Number(query.get('limit') ?? 300) }),
+    }), { roles: ADMIN })
+
+    // ================================================================ usuarios (solo admin)
+    .on('GET', '/api/users', () => ({ items: users.list() }), { roles: ADMIN })
+    .on('POST', '/api/users', async ({ req, user }) => {
+      const body = await readJson<Record<string, unknown>>(req);
+      const created = await users.create({
+        name: body.name as string,
+        email: (body.email as string) || null,
+        username: body.username as string,
+        password: body.password as string,
+        role: body.role as Role,
+      });
+      repo.logSystem('usuario', user.id, `Creó el usuario ${created.username} (${created.role})`);
+      return { user: created };
+    }, { roles: ADMIN })
+    .on('PATCH', '/api/users/:id', async ({ req, params, user }) => {
+      const body = await readJson<Record<string, unknown>>(req);
+      if (params.id === user.id && (body.active === false || body.role === 'vendedor')) {
+        throw new HttpError(400, 'No podés desactivarte ni quitarte el rol de administrador a vos mismo.');
+      }
+      const updated = await users.update(params.id!, {
+        name: body.name as string | undefined,
+        email: body.email === undefined ? undefined : (body.email as string) || null,
+        username: body.username as string | undefined,
+        role: body.role as Role | undefined,
+        active: body.active === undefined ? undefined : Boolean(body.active),
+        password: body.password ? String(body.password) : undefined,
+      });
+      const what = [
+        body.active === false ? 'desactivó' : body.active === true ? 'reactivó' : 'editó',
+        body.password ? '(nueva contraseña)' : '',
+      ].filter(Boolean).join(' ');
+      repo.logSystem('usuario', user.id, `${what} al usuario ${updated.username}`);
+      return { user: updated };
+    }, { roles: ADMIN })
+
+    // ================================================================ configuración (solo admin)
     .on('GET', '/api/settings', () => {
       const prices = repo.prices();
       return {
-        settings: settings(),
+        settings: globalSettings(),
         prices: prices ?? null,
         priceError: repo.priceError ?? null,
         pricesFile: path.join(ROOT_DIR, 'precios.json'),
         databaseFile: DB_FILE,
         services: Object.values(SERVICE_CATALOG).map((s) => ({ id: s.id, name: s.name })),
       };
-    })
+    }, { roles: ADMIN })
     .on('PUT', '/api/settings', async ({ req }) => {
       const body = await readJson<Partial<Settings>>(req);
       repo.saveSettings(body);
-      return { settings: settings() };
-    })
+      return { settings: globalSettings() };
+    }, { roles: ADMIN })
     .on('GET', '/api/export', ({ res }) => {
       const date = new Date().toISOString().slice(0, 10);
       sendJson(res, 200, repo.exportAll(), { 'Content-Disposition': `attachment; filename="prospectos-${date}.json"` });
       return undefined;
-    });
+    }, { roles: ADMIN });
 
   async function serveStatic(res: http.ServerResponse, pathname: string): Promise<void> {
     // Rutas de la app (sin extensión) → index.html; archivos → web/
     const rel = path.extname(pathname) ? pathname : '/index.html';
-    const file = path.resolve(webDir, `.${decodeURIComponent(rel)}`);
+    let file: string;
+    try {
+      file = path.resolve(webDir, `.${decodeURIComponent(rel)}`);
+    } catch {
+      return sendJson(res, 400, { error: 'Ruta inválida.' });
+    }
     if (!file.startsWith(path.resolve(webDir) + path.sep)) return sendJson(res, 403, { error: 'Prohibido.' });
     try {
       const content = await readFile(file);
@@ -177,20 +404,41 @@ export function createApp(deps: AppDeps): http.Server {
     }
   }
 
+  /** Orígenes válidos: el mismo con el que se pidió la página (directo o a través del proxy) y PUBLIC_URL. */
+  function originAllowed(req: http.IncomingMessage): boolean {
+    const origin = req.headers.origin;
+    if (!origin) return true; // curl, navegación directa
+    if (origin === requestOrigin(req, sec.trustProxy)) return true;
+    if (sec.publicUrl && origin === sec.publicUrl) return true;
+    const port = req.socket.localPort ?? config.port;
+    return origin === `http://localhost:${port}` || origin === `http://127.0.0.1:${port}`;
+  }
+
   return http.createServer((req, res) => {
-    const url = new URL(req.url ?? '/', 'http://localhost');
-    const port = (req.socket.localPort ?? config.port) as number;
+    for (const [k, v] of Object.entries(SECURITY_HEADERS)) res.setHeader(k, v);
+    if (isHttps(req, sec.trustProxy)) res.setHeader('Strict-Transport-Security', 'max-age=15552000');
+
+    let url: URL;
+    try {
+      url = new URL(req.url ?? '/', 'http://localhost');
+    } catch {
+      return sendJson(res, 400, { error: 'Ruta inválida.' });
+    }
     const origin = req.headers.origin;
 
     // index.html abierto con doble clic (origin "null") solo puede consultar si la herramienta está iniciada.
     if (origin === 'null' && req.method === 'GET' && url.pathname === '/api/estado') {
-      return sendJson(res, 200, { ok: true, ocupado: busy }, { 'Access-Control-Allow-Origin': 'null' });
+      return sendJson(res, 200, { ok: true, ocupado: !!busy }, { 'Access-Control-Allow-Origin': 'null' });
     }
-    if (!sameApp(origin, port)) return sendJson(res, 403, { error: 'Origen no permitido.' });
+    // Protección CSRF: otras webs abiertas en el navegador no pueden usar la API.
+    if (!originAllowed(req)) return sendJson(res, 403, { error: 'Origen no permitido.' });
 
     if (url.pathname.startsWith('/api/')) {
+      const token = parseCookies(req.headers.cookie)[COOKIE];
+      const session = users.userForSession(token);
+      if (session?.renewed && token) setSessionCookie(req, res, token);
       router
-        .handle(req, res, url)
+        .handle(req, res, url, session?.user)
         .then((handled) => {
           if (!handled) sendJson(res, 404, { error: 'Ruta no encontrada.' });
         })

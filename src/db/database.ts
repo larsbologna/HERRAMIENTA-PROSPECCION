@@ -13,7 +13,7 @@ export type Db = DatabaseSyncType;
  * Migraciones en orden. NUNCA modificar una ya publicada: agregar una nueva al final.
  * PRAGMA user_version guarda cuántas se aplicaron.
  */
-const MIGRATIONS: string[] = [
+export const MIGRATIONS: string[] = [
   // 1 · Esquema inicial del CRM
   `
   CREATE TABLE prospects (
@@ -77,6 +77,70 @@ const MIGRATIONS: string[] = [
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
   );
+  `,
+
+  // 2 · Multiusuario: usuarios, sesiones, seguimientos, asignación y actividad por usuario.
+  //     Conserva todos los datos existentes (los prospectos quedan sin asignar).
+  `
+  CREATE TABLE users (
+    id            TEXT PRIMARY KEY,
+    name          TEXT NOT NULL,
+    email         TEXT,
+    username      TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    password_hash TEXT NOT NULL,
+    role          TEXT NOT NULL CHECK (role IN ('admin', 'vendedor')),
+    active        INTEGER NOT NULL DEFAULT 1,
+    created_at    TEXT NOT NULL,
+    updated_at    TEXT NOT NULL,
+    last_login_at TEXT
+  );
+
+  CREATE TABLE sessions (
+    token_hash   TEXT PRIMARY KEY,
+    user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at   TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    expires_at   TEXT NOT NULL,
+    ip           TEXT,
+    user_agent   TEXT
+  );
+  CREATE INDEX idx_sessions_user ON sessions(user_id);
+
+  CREATE TABLE followups (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    prospect_id  TEXT NOT NULL REFERENCES prospects(id) ON DELETE CASCADE,
+    user_id      TEXT REFERENCES users(id) ON DELETE SET NULL,
+    due_at       TEXT NOT NULL,
+    note         TEXT NOT NULL DEFAULT '',
+    status       TEXT NOT NULL DEFAULT 'pendiente' CHECK (status IN ('pendiente', 'hecho', 'cancelado')),
+    created_by   TEXT REFERENCES users(id) ON DELETE SET NULL,
+    created_at   TEXT NOT NULL,
+    completed_at TEXT
+  );
+  CREATE INDEX idx_followups_pending ON followups(status, due_at);
+  CREATE INDEX idx_followups_prospect ON followups(prospect_id);
+
+  ALTER TABLE prospects ADD COLUMN assigned_user_id TEXT REFERENCES users(id) ON DELETE SET NULL;
+  CREATE INDEX idx_prospects_assigned ON prospects(assigned_user_id);
+  ALTER TABLE audits ADD COLUMN user_id TEXT REFERENCES users(id) ON DELETE SET NULL;
+
+  -- activities: se agrega user_id y el prospecto pasa a ser opcional (login/logout no tienen prospecto).
+  CREATE TABLE activities_v2 (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    prospect_id TEXT REFERENCES prospects(id) ON DELETE CASCADE,
+    user_id     TEXT REFERENCES users(id) ON DELETE SET NULL,
+    type        TEXT NOT NULL,
+    content     TEXT NOT NULL DEFAULT '',
+    from_status TEXT,
+    to_status   TEXT,
+    created_at  TEXT NOT NULL
+  );
+  INSERT INTO activities_v2 (id, prospect_id, type, content, from_status, to_status, created_at)
+    SELECT id, prospect_id, type, content, from_status, to_status, created_at FROM activities;
+  DROP TABLE activities;
+  ALTER TABLE activities_v2 RENAME TO activities;
+  CREATE INDEX idx_activities_prospect ON activities(prospect_id, created_at);
+  CREATE INDEX idx_activities_user ON activities(user_id, created_at);
   `,
 ];
 

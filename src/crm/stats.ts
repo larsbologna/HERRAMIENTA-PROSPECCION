@@ -149,3 +149,24 @@ export function metrics(rows: StatRow[]) {
     scoreDistribution: buckets,
   };
 }
+
+/**
+ * KPIs personales de un usuario sobre SUS prospectos asignados.
+ * Conversión personal = clientes / contactados (prospectos que llegaron al menos a "Contactado").
+ */
+export function personalKpis(ownRows: ProspectSummary[], pendingFollowups: number, overdueFollowups: number) {
+  const contacted = ownRows.filter((r) => r.maxStage >= 1).length;
+  const clients = ownRows.filter((r) => r.status === 'cliente').length;
+  return {
+    assigned: ownRows.length,
+    open: ownRows.filter(OPEN).length,
+    followupsPending: pendingFollowups,
+    followupsOverdue: overdueFollowups,
+    meetings: ownRows.filter((r) => r.maxStage >= 3).length,
+    meetingsNow: ownRows.filter((r) => r.status === 'reunion').length,
+    clients,
+    contacted,
+    conversionRate: pct(clients, contacted),
+    closedValue: sum(ownRows.filter((r) => r.status === 'cliente').map((r) => r.closedValue ?? r.potentialValue)),
+  };
+}

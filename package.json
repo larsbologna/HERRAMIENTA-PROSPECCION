@@ -6,11 +6,13 @@
   "type": "module",
   "scripts": {
     "start": "tsx src/server.ts --abrir",
+    "serve": "tsx src/server.ts",
+    "usuarios": "tsx src/usersCli.ts",
     "analizar": "tsx src/cli.ts",
     "diagnose": "tsx src/diagnose.ts",
     "setup": "playwright install chromium",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --import tsx --test test/utils.test.ts test/audit.test.ts test/salesArguments.test.ts test/budget.test.ts test/messages.test.ts test/crm.test.ts test/api.test.ts test/diagnostic.test.ts test/e2e.test.ts"
+    "test": "node --import tsx --test test/utils.test.ts test/audit.test.ts test/salesArguments.test.ts test/budget.test.ts test/messages.test.ts test/crm.test.ts test/auth.test.ts test/api.test.ts test/diagnostic.test.ts test/e2e.test.ts"
   },
   "engines": {
     "node": ">=22.13"

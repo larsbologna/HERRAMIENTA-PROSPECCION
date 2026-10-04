@@ -11,6 +11,8 @@ import {
   type Activity,
   type ActivityType,
   type AuditEntry,
+  type Followup,
+  type FollowupStatus,
   type ProspectDetail,
   type ProspectFilter,
   type ProspectStatus,
@@ -21,19 +23,27 @@ import {
 
 type Row = Record<string, unknown>;
 
-const SUMMARY_COLUMNS = `id, name, category, vertical_id, vertical_label, maps_url, address, phone, website, rating, review_count,
-  score, status, max_stage, potential_value, project_total, closed_value, problems_count, high_impact_count,
-  analyzed_at, created_at, last_activity_at`;
+/** Resumen de prospecto con vendedor asignado y próximo seguimiento pendiente. */
+const SUMMARY_SELECT = `SELECT p.id, p.name, p.category, p.vertical_id, p.vertical_label, p.maps_url, p.address, p.phone, p.website,
+  p.rating, p.review_count, p.score, p.status, p.max_stage, p.potential_value, p.project_total, p.closed_value,
+  p.problems_count, p.high_impact_count, p.analyzed_at, p.created_at, p.last_activity_at,
+  p.assigned_user_id, u.name AS assigned_user_name,
+  (SELECT MIN(f.due_at) FROM followups f WHERE f.prospect_id = p.id AND f.status = 'pendiente') AS next_followup_at
+  FROM prospects p LEFT JOIN users u ON u.id = p.assigned_user_id`;
 
 const SORTS: Record<NonNullable<ProspectFilter['sort']>, string> = {
-  name: 'name COLLATE NOCASE',
-  vertical: 'vertical_label COLLATE NOCASE',
-  score: 'score',
-  potential: 'potential_value',
-  status: `CASE status ${STATUSES.map((s, i) => `WHEN '${s.id}' THEN ${i}`).join(' ')} END`,
-  lastActivity: 'last_activity_at',
-  analyzedAt: 'analyzed_at',
+  name: 'p.name COLLATE NOCASE',
+  vertical: 'p.vertical_label COLLATE NOCASE',
+  score: 'p.score',
+  potential: 'p.potential_value',
+  status: `CASE p.status ${STATUSES.map((s, i) => `WHEN '${s.id}' THEN ${i}`).join(' ')} END`,
+  lastActivity: 'p.last_activity_at',
+  analyzedAt: 'p.analyzed_at',
+  nextFollowup: `COALESCE(next_followup_at, '9999')`,
 };
+
+const ACTIVITY_SELECT = `SELECT a.*, u.name AS user_name, p.name AS prospect_name
+  FROM activities a LEFT JOIN users u ON u.id = a.user_id LEFT JOIN prospects p ON p.id = a.prospect_id`;
 
 /** Unifica nombre + dirección para no duplicar el mismo negocio si se analiza dos veces. */
 export function dedupeKey(name: string, address?: string, fallback?: string): string {
@@ -76,6 +86,9 @@ function toSummary(r: Row): ProspectSummary {
     analyzedAt: String(r.analyzed_at),
     createdAt: String(r.created_at),
     lastActivityAt: String(r.last_activity_at),
+    assignedUserId: (r.assigned_user_id as string) ?? null,
+    assignedUserName: (r.assigned_user_name as string) ?? null,
+    nextFollowupAt: (r.next_followup_at as string) ?? null,
   };
 }
 
@@ -89,7 +102,35 @@ function toActivity(r: Row): Activity {
     fromStatus: (r.from_status as string) ?? null,
     toStatus: (r.to_status as string) ?? null,
     createdAt: String(r.created_at),
+    userId: (r.user_id as string) ?? null,
+    userName: (r.user_name as string) ?? null,
+    prospectId: (r.prospect_id as string) ?? null,
+    prospectName: (r.prospect_name as string) ?? null,
   };
+}
+
+function toFollowup(r: Row): Followup {
+  const dueAt = String(r.due_at);
+  return {
+    id: Number(r.id),
+    prospectId: String(r.prospect_id),
+    prospectName: (r.prospect_name as string) ?? undefined,
+    userId: (r.user_id as string) ?? null,
+    userName: (r.user_name as string) ?? null,
+    dueAt,
+    note: String(r.note ?? ''),
+    status: r.status as FollowupStatus,
+    createdAt: String(r.created_at),
+    completedAt: (r.completed_at as string) ?? null,
+    overdue: r.status === 'pendiente' && Date.parse(dueAt) < Date.now(),
+  };
+}
+
+/** Fin del día local (para "pendientes hasta hoy"). */
+export function endOfToday(ref = new Date()): string {
+  const d = new Date(ref);
+  d.setHours(23, 59, 59, 999);
+  return d.toISOString();
 }
 
 export class NotFoundError extends Error {}
@@ -146,7 +187,10 @@ export class CrmRepository {
    * Guarda un análisis. Si el negocio ya existe (mismo nombre + dirección) se actualiza
    * conservando estado comercial, notas e historial, y se registra como reanálisis.
    */
-  saveAnalysis(result: AnalysisResult, opts: { source?: 'analisis' | 'importado'; auditId?: string } = {}): { id: string; created: boolean } {
+  saveAnalysis(
+    result: AnalysisResult,
+    opts: { source?: 'analisis' | 'importado'; auditId?: string; userId?: string } = {},
+  ): { id: string; created: boolean; assignedUserId: string | null } {
     const p = result.profile;
     if (!p.name) throw new ValidationError('El análisis no tiene nombre de negocio.');
     const prices = this.prices();
@@ -180,24 +224,26 @@ export class CrmRepository {
     const source = opts.source ?? 'analisis';
 
     return transaction(this.db, () => {
-      const existing = this.db.prepare('SELECT id, score FROM prospects WHERE dedupe_key = ?').get(key) as Row | undefined;
+      const existing = this.db.prepare('SELECT id, score, assigned_user_id FROM prospects WHERE dedupe_key = ?').get(key) as Row | undefined;
+      const userId = opts.userId ?? null;
       const id = existing ? String(existing.id) : randomUUID();
       const cols = Object.keys(fields);
       if (existing) {
         this.db
           .prepare(`UPDATE prospects SET ${cols.map((c) => `${c} = ?`).join(', ')}, updated_at = ?, last_activity_at = ? WHERE id = ?`)
           .run(...(Object.values(fields) as never[]), ts, ts, id);
-        this.logActivity(id, source === 'importado' ? 'importado' : 'reanalisis', `Score ${existing.score} → ${fields.score} · ${problems.length} problemas`, ts);
+        this.logActivity(id, source === 'importado' ? 'importado' : 'reanalisis', `Score ${existing.score} → ${fields.score} · ${problems.length} problemas`, ts, userId);
       } else {
+        // Un prospecto nuevo queda asignado a quien hizo el análisis.
         this.db
-          .prepare(`INSERT INTO prospects (id, dedupe_key, ${cols.join(', ')}, created_at, updated_at, last_activity_at) VALUES (?, ?, ${cols.map(() => '?').join(', ')}, ?, ?, ?)`)
-          .run(id, key, ...(Object.values(fields) as never[]), analyzedAt, ts, ts);
-        this.logActivity(id, source === 'importado' ? 'importado' : 'creado', `Score ${fields.score}/100 · ${problems.length} problemas detectados`, ts);
+          .prepare(`INSERT INTO prospects (id, dedupe_key, ${cols.join(', ')}, assigned_user_id, created_at, updated_at, last_activity_at) VALUES (?, ?, ${cols.map(() => '?').join(', ')}, ?, ?, ?, ?)`)
+          .run(id, key, ...(Object.values(fields) as never[]), userId, analyzedAt, ts, ts);
+        this.logActivity(id, source === 'importado' ? 'importado' : 'creado', `Score ${fields.score}/100 · ${problems.length} problemas detectados`, ts, userId);
       }
       this.db
-        .prepare('INSERT INTO audits (id, prospect_id, created_at, score, problems_count, duration_ms, source, result_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-        .run(opts.auditId ?? randomUUID(), id, analyzedAt, fields.score, problems.length, result.durationMs ?? 0, source, json(result));
-      return { id, created: !existing };
+        .prepare('INSERT INTO audits (id, prospect_id, created_at, score, problems_count, duration_ms, source, result_json, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(opts.auditId ?? randomUUID(), id, analyzedAt, fields.score, problems.length, result.durationMs ?? 0, source, json(result), userId);
+      return { id, created: !existing, assignedUserId: existing ? ((existing.assigned_user_id as string) ?? null) : userId };
     });
   }
 
@@ -212,38 +258,45 @@ export class CrmRepository {
     const where: string[] = [];
     const params: (string | number)[] = [];
     if (filter.q?.trim()) {
-      where.push('(name LIKE ? OR category LIKE ? OR address LIKE ? OR phone LIKE ? OR vertical_label LIKE ?)');
+      where.push('(p.name LIKE ? OR p.category LIKE ? OR p.address LIKE ? OR p.phone LIKE ? OR p.vertical_label LIKE ?)');
       const like = `%${filter.q.trim()}%`;
       params.push(like, like, like, like, like);
     }
     if (filter.status && filter.status !== 'todos') {
-      if (filter.status === 'abiertos') where.push(`status NOT IN ('cliente', 'perdido')`);
+      if (filter.status === 'abiertos') where.push(`p.status NOT IN ('cliente', 'perdido')`);
       else {
-        where.push('status = ?');
+        where.push('p.status = ?');
         params.push(filter.status);
       }
     }
     if (filter.vertical) {
-      where.push('vertical_id = ?');
+      where.push('p.vertical_id = ?');
       params.push(filter.vertical);
     }
     if (filter.minScore !== undefined && Number.isFinite(filter.minScore)) {
-      where.push('score >= ?');
+      where.push('p.score >= ?');
       params.push(filter.minScore);
     }
     if (filter.maxScore !== undefined && Number.isFinite(filter.maxScore)) {
-      where.push('score <= ?');
+      where.push('p.score <= ?');
       params.push(filter.maxScore);
+    }
+    if (filter.assignedTo === 'none') where.push('p.assigned_user_id IS NULL');
+    else if (filter.assignedTo) {
+      where.push('p.assigned_user_id = ?');
+      params.push(filter.assignedTo);
     }
     const sort = SORTS[filter.sort ?? 'lastActivity'] ?? SORTS.lastActivity;
     const dir = filter.dir === 'asc' ? 'ASC' : 'DESC';
-    const sql = `SELECT ${SUMMARY_COLUMNS} FROM prospects ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY ${sort} ${dir}, name COLLATE NOCASE ASC`;
+    const sql = `${SUMMARY_SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY ${sort} ${dir}, p.name COLLATE NOCASE ASC`;
     return (this.db.prepare(sql).all(...params) as Row[]).map(toSummary);
   }
 
   get(id: string): ProspectDetail {
     this.refreshValuesIfPricesChanged();
-    const r = this.db.prepare('SELECT * FROM prospects WHERE id = ?').get(id) as Row | undefined;
+    const r = this.db.prepare(`SELECT p.*, u.name AS assigned_user_name,
+      (SELECT MIN(f.due_at) FROM followups f WHERE f.prospect_id = p.id AND f.status = 'pendiente') AS next_followup_at
+      FROM prospects p LEFT JOIN users u ON u.id = p.assigned_user_id WHERE p.id = ?`).get(id) as Row | undefined;
     if (!r) throw new NotFoundError('Prospecto no encontrado.');
     const latest = this.db.prepare('SELECT result_json FROM audits WHERE prospect_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1').get(id) as Row | undefined;
     return {
@@ -254,19 +307,31 @@ export class CrmRepository {
       services: parse<ServiceRecommendation[]>(r.services_json, []),
       budget: parse<Budget>(r.budget_json, {} as Budget),
       audits: this.audits({ prospectId: id }),
-      activities: (this.db.prepare('SELECT * FROM activities WHERE prospect_id = ? ORDER BY created_at DESC, id DESC').all(id) as Row[]).map(toActivity),
+      activities: (this.db.prepare(`${ACTIVITY_SELECT} WHERE a.prospect_id = ? ORDER BY a.created_at DESC, a.id DESC`).all(id) as Row[]).map(toActivity),
+      followups: this.followups({ prospectId: id, includeClosed: true }),
       analysis: parse<AnalysisResult>(latest?.result_json, {} as AnalysisResult),
     };
   }
 
-  update(id: string, upd: ProspectUpdate): ProspectDetail {
-    const r = this.db.prepare('SELECT status, max_stage, notes, closed_value, potential_value FROM prospects WHERE id = ?').get(id) as Row | undefined;
+  /** Asignado actual de un prospecto (undefined si no existe). Para controles de acceso. */
+  assigneeOf(id: string): string | null | undefined {
+    const r = this.db.prepare('SELECT assigned_user_id FROM prospects WHERE id = ?').get(id) as Row | undefined;
+    return r ? ((r.assigned_user_id as string) ?? null) : undefined;
+  }
+
+  update(id: string, upd: ProspectUpdate, actorId: string | null = null): ProspectDetail {
+    const r = this.db.prepare('SELECT status, max_stage, notes, closed_value, potential_value, assigned_user_id FROM prospects WHERE id = ?').get(id) as Row | undefined;
     if (!r) throw new NotFoundError('Prospecto no encontrado.');
     if (upd.status !== undefined && !isStatus(upd.status)) throw new ValidationError('Estado inválido.');
     if (upd.notes !== undefined && typeof upd.notes !== 'string') throw new ValidationError('Notas inválidas.');
     if (upd.notes !== undefined && upd.notes.length > 50_000) throw new ValidationError('Las notas son demasiado largas.');
     if (upd.closedValue !== undefined && upd.closedValue !== null && !(Number.isFinite(upd.closedValue) && upd.closedValue >= 0)) {
       throw new ValidationError('Valor cerrado inválido.');
+    }
+    if (upd.assignedUserId !== undefined && upd.assignedUserId !== null) {
+      const u = this.db.prepare('SELECT active FROM users WHERE id = ?').get(upd.assignedUserId) as Row | undefined;
+      if (!u) throw new ValidationError('El usuario asignado no existe.');
+      if (!Number(u.active)) throw new ValidationError('No se puede asignar a un usuario desactivado.');
     }
     const ts = now();
     transaction(this.db, () => {
@@ -278,28 +343,35 @@ export class CrmRepository {
           .prepare('UPDATE prospects SET status = ?, max_stage = ?, closed_value = ?, updated_at = ?, last_activity_at = ? WHERE id = ?')
           .run(upd.status, maxStage, closed, ts, ts, id);
         this.db
-          .prepare('INSERT INTO activities (prospect_id, type, content, from_status, to_status, created_at) VALUES (?, ?, ?, ?, ?, ?)')
-          .run(id, 'estado', '', String(r.status), upd.status, ts);
+          .prepare('INSERT INTO activities (prospect_id, user_id, type, content, from_status, to_status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+          .run(id, actorId, 'estado', '', String(r.status), upd.status, ts);
       }
       if (upd.notes !== undefined && upd.notes !== r.notes) {
         this.db.prepare('UPDATE prospects SET notes = ?, updated_at = ?, last_activity_at = ? WHERE id = ?').run(upd.notes, ts, ts, id);
         // Guardado continuo: varias ediciones seguidas cuentan como una sola entrada del historial.
-        const last = this.db.prepare('SELECT id, type, created_at FROM activities WHERE prospect_id = ? ORDER BY created_at DESC, id DESC LIMIT 1').get(id) as Row | undefined;
-        if (last && last.type === 'notas' && Date.parse(ts) - Date.parse(String(last.created_at)) < 30 * 60_000) {
+        const last = this.db.prepare('SELECT id, type, user_id, created_at FROM activities WHERE prospect_id = ? ORDER BY created_at DESC, id DESC LIMIT 1').get(id) as Row | undefined;
+        if (last && last.type === 'notas' && (last.user_id ?? null) === actorId && Date.parse(ts) - Date.parse(String(last.created_at)) < 30 * 60_000) {
           this.db.prepare('UPDATE activities SET created_at = ? WHERE id = ?').run(ts, Number(last.id));
         } else {
-          this.logActivity(id, 'notas', '', ts);
+          this.logActivity(id, 'notas', '', ts, actorId);
         }
       }
       if (upd.closedValue !== undefined) {
         const value = upd.closedValue === null ? null : Math.round(upd.closedValue);
         this.db.prepare('UPDATE prospects SET closed_value = ?, updated_at = ? WHERE id = ?').run(value, ts, id);
       }
+      if (upd.assignedUserId !== undefined && upd.assignedUserId !== (r.assigned_user_id ?? null)) {
+        this.db.prepare('UPDATE prospects SET assigned_user_id = ?, updated_at = ?, last_activity_at = ? WHERE id = ?').run(upd.assignedUserId, ts, ts, id);
+        const name = upd.assignedUserId ? (this.db.prepare('SELECT name FROM users WHERE id = ?').get(upd.assignedUserId) as Row).name : null;
+        this.logActivity(id, 'asignacion', name ? `Asignado a ${name}` : 'Sin asignar', ts, actorId);
+        // Los seguimientos pendientes pasan al nuevo responsable.
+        this.db.prepare(`UPDATE followups SET user_id = ? WHERE prospect_id = ? AND status = 'pendiente'`).run(upd.assignedUserId, id);
+      }
     });
     return this.get(id);
   }
 
-  addActivity(id: string, type: string, content: string): Activity {
+  addActivity(id: string, type: string, content: string, actorId: string | null = null): Activity {
     if (!MANUAL_ACTIVITY_TYPES.includes(type as ActivityType)) throw new ValidationError('Tipo de actividad inválido.');
     const text = String(content ?? '').trim();
     if (!text) throw new ValidationError('Escribí el detalle de la actividad.');
@@ -307,9 +379,9 @@ export class CrmRepository {
     if (!this.db.prepare('SELECT 1 FROM prospects WHERE id = ?').get(id)) throw new NotFoundError('Prospecto no encontrado.');
     const ts = now();
     return transaction(this.db, () => {
-      const activityId = this.logActivity(id, type as ActivityType, text, ts);
+      const activityId = this.logActivity(id, type as ActivityType, text, ts, actorId);
       this.db.prepare('UPDATE prospects SET last_activity_at = ?, updated_at = ? WHERE id = ?').run(ts, ts, id);
-      return toActivity(this.db.prepare('SELECT * FROM activities WHERE id = ?').get(activityId) as Row);
+      return toActivity(this.db.prepare(`${ACTIVITY_SELECT} WHERE a.id = ?`).get(activityId) as Row);
     });
   }
 
@@ -319,11 +391,11 @@ export class CrmRepository {
   }
 
   audits(opts: { prospectId?: string; limit?: number } = {}): AuditEntry[] {
+    const base = `SELECT a.id, a.prospect_id, p.name, a.created_at, a.score, a.problems_count, a.duration_ms, a.source, u.name AS user_name
+      FROM audits a JOIN prospects p ON p.id = a.prospect_id LEFT JOIN users u ON u.id = a.user_id`;
     const rows = (opts.prospectId
-      ? this.db.prepare(`SELECT a.id, a.prospect_id, p.name, a.created_at, a.score, a.problems_count, a.duration_ms, a.source
-          FROM audits a JOIN prospects p ON p.id = a.prospect_id WHERE a.prospect_id = ? ORDER BY a.created_at DESC`).all(opts.prospectId)
-      : this.db.prepare(`SELECT a.id, a.prospect_id, p.name, a.created_at, a.score, a.problems_count, a.duration_ms, a.source
-          FROM audits a JOIN prospects p ON p.id = a.prospect_id ORDER BY a.created_at DESC LIMIT ?`).all(opts.limit ?? 500)) as Row[];
+      ? this.db.prepare(`${base} WHERE a.prospect_id = ? ORDER BY a.created_at DESC`).all(opts.prospectId)
+      : this.db.prepare(`${base} ORDER BY a.created_at DESC LIMIT ?`).all(opts.limit ?? 500)) as Row[];
     return rows.map((r) => ({
       id: String(r.id),
       prospectId: String(r.prospect_id),
@@ -333,6 +405,7 @@ export class CrmRepository {
       problemsCount: Number(r.problems_count),
       durationMs: Number(r.duration_ms),
       source: String(r.source),
+      userName: (r.user_name as string) ?? null,
     }));
   }
 
@@ -390,9 +463,10 @@ export class CrmRepository {
   }
 
   /** Filas mínimas para métricas y dashboard. */
-  allForStats(): Array<ProspectSummary & { services: ServiceRecommendation[]; areaScores: AreaScore[] }> {
+  allForStats(scopeUserId?: string): Array<ProspectSummary & { services: ServiceRecommendation[]; areaScores: AreaScore[] }> {
     this.refreshValuesIfPricesChanged();
-    return (this.db.prepare(`SELECT ${SUMMARY_COLUMNS}, services_json, area_scores_json FROM prospects`).all() as Row[]).map((r) => ({
+    const sql = `${SUMMARY_SELECT.replace(' FROM prospects p', ', p.services_json, p.area_scores_json FROM prospects p')}${scopeUserId ? ' WHERE p.assigned_user_id = ?' : ''}`;
+    return (this.db.prepare(sql).all(...(scopeUserId ? [scopeUserId] : [])) as Row[]).map((r) => ({
       ...toSummary(r),
       services: parse<ServiceRecommendation[]>(r.services_json, []),
       areaScores: parse<AreaScore[]>(r.area_scores_json, []),
@@ -400,17 +474,112 @@ export class CrmRepository {
   }
 
   /** Cambios de estado (para conversiones por mes). */
-  statusChanges(): Array<{ toStatus: string; createdAt: string }> {
-    return (this.db.prepare(`SELECT to_status, created_at FROM activities WHERE type = 'estado'`).all() as Row[]).map((r) => ({
+  statusChanges(scopeUserId?: string): Array<{ toStatus: string; createdAt: string }> {
+    const sql = scopeUserId
+      ? `SELECT a.to_status, a.created_at FROM activities a JOIN prospects p ON p.id = a.prospect_id WHERE a.type = 'estado' AND p.assigned_user_id = ?`
+      : `SELECT to_status, created_at FROM activities WHERE type = 'estado'`;
+    return (this.db.prepare(sql).all(...(scopeUserId ? [scopeUserId] : [])) as Row[]).map((r) => ({
       toStatus: String(r.to_status),
       createdAt: String(r.created_at),
     }));
   }
 
-  private logActivity(prospectId: string, type: ActivityType, content: string, ts: string): number {
+  // ------------------------------------------------------------------ seguimientos
+
+  addFollowup(prospectId: string, input: { dueAt: string; note?: string }, actorId: string | null = null): Followup {
+    const due = Date.parse(String(input.dueAt ?? ''));
+    if (!Number.isFinite(due)) throw new ValidationError('Indicá la fecha del próximo contacto.');
+    const note = String(input.note ?? '').trim();
+    if (note.length > 1_000) throw new ValidationError('El recordatorio es demasiado largo.');
+    const assignee = this.assigneeOf(prospectId);
+    if (assignee === undefined) throw new NotFoundError('Prospecto no encontrado.');
+    const ts = now();
+    const dueAt = new Date(due).toISOString();
+    return transaction(this.db, () => {
+      const res = this.db
+        .prepare('INSERT INTO followups (prospect_id, user_id, due_at, note, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(prospectId, assignee ?? actorId, dueAt, note, actorId, ts);
+      this.logActivity(prospectId, 'seguimiento', `${new Date(dueAt).toLocaleString('es-AR', { dateStyle: 'medium', timeStyle: 'short' })}${note ? ` · ${note}` : ''}`, ts, actorId);
+      this.db.prepare('UPDATE prospects SET last_activity_at = ? WHERE id = ?').run(ts, prospectId);
+      return this.followup(Number(res.lastInsertRowid))!;
+    });
+  }
+
+  followup(id: number): Followup | undefined {
+    const r = this.db.prepare(`SELECT f.*, u.name AS user_name, p.name AS prospect_name FROM followups f
+      JOIN prospects p ON p.id = f.prospect_id LEFT JOIN users u ON u.id = f.user_id WHERE f.id = ?`).get(id) as Row | undefined;
+    return r ? toFollowup(r) : undefined;
+  }
+
+  setFollowupStatus(id: number, status: FollowupStatus, actorId: string | null = null): Followup {
+    if (!['pendiente', 'hecho', 'cancelado'].includes(status)) throw new ValidationError('Estado de seguimiento inválido.');
+    const f = this.followup(id);
+    if (!f) throw new NotFoundError('Seguimiento no encontrado.');
+    if (f.status === status) return f;
+    const ts = now();
+    transaction(this.db, () => {
+      this.db.prepare('UPDATE followups SET status = ?, completed_at = ? WHERE id = ?').run(status, status === 'pendiente' ? null : ts, id);
+      if (status !== 'pendiente') {
+        this.logActivity(f.prospectId, status === 'hecho' ? 'seguimiento_hecho' : 'seguimiento_cancelado', f.note, ts, actorId);
+        this.db.prepare('UPDATE prospects SET last_activity_at = ? WHERE id = ?').run(ts, f.prospectId);
+      }
+    });
+    return this.followup(id)!;
+  }
+
+  /**
+   * Seguimientos. Por defecto solo pendientes; `until` limita hasta una fecha (p. ej. fin de hoy).
+   * `userId` filtra por responsable (el vendedor asignado al prospecto).
+   */
+  followups(opts: { prospectId?: string; userId?: string; until?: string; includeClosed?: boolean; limit?: number } = {}): Followup[] {
+    const where: string[] = [];
+    const params: (string | number)[] = [];
+    if (!opts.includeClosed) where.push(`f.status = 'pendiente'`);
+    if (opts.prospectId) {
+      where.push('f.prospect_id = ?');
+      params.push(opts.prospectId);
+    }
+    if (opts.userId) {
+      where.push('p.assigned_user_id = ?');
+      params.push(opts.userId);
+    }
+    if (opts.until) {
+      where.push('f.due_at <= ?');
+      params.push(opts.until);
+    }
+    const order = opts.includeClosed ? `CASE f.status WHEN 'pendiente' THEN 0 ELSE 1 END, f.due_at` : 'f.due_at';
+    const sql = `SELECT f.*, u.name AS user_name, p.name AS prospect_name FROM followups f
+      JOIN prospects p ON p.id = f.prospect_id LEFT JOIN users u ON u.id = f.user_id
+      ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY ${order} LIMIT ?`;
+    return (this.db.prepare(sql).all(...params, opts.limit ?? 200) as Row[]).map(toFollowup);
+  }
+
+  // ------------------------------------------------------------------ actividad global
+
+  /** Registra una acción sin prospecto (login, logout, gestión de usuarios). */
+  logSystem(type: ActivityType, userId: string | null, content = ''): void {
+    this.logActivity(null, type, content, now(), userId);
+  }
+
+  activityLog(opts: { userId?: string; type?: string; limit?: number } = {}): Activity[] {
+    const where: string[] = [];
+    const params: (string | number)[] = [];
+    if (opts.userId) {
+      where.push('a.user_id = ?');
+      params.push(opts.userId);
+    }
+    if (opts.type) {
+      where.push('a.type = ?');
+      params.push(opts.type);
+    }
+    const sql = `${ACTIVITY_SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY a.created_at DESC, a.id DESC LIMIT ?`;
+    return (this.db.prepare(sql).all(...params, Math.min(opts.limit ?? 300, 1000)) as Row[]).map(toActivity);
+  }
+
+  private logActivity(prospectId: string | null, type: ActivityType, content: string, ts: string, userId: string | null = null): number {
     const res = this.db
-      .prepare('INSERT INTO activities (prospect_id, type, content, created_at) VALUES (?, ?, ?, ?)')
-      .run(prospectId, type, content, ts);
+      .prepare('INSERT INTO activities (prospect_id, user_id, type, content, created_at) VALUES (?, ?, ?, ?, ?)')
+      .run(prospectId, userId, type, content, ts);
     return Number(res.lastInsertRowid);
   }
 }

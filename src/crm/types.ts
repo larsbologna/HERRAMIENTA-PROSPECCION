@@ -28,8 +28,8 @@ export function stageOf(id: ProspectStatus): number {
 
 /** Tipos de actividad del historial. Las de MANUAL_ACTIVITY_TYPES las registra el usuario. */
 export const ACTIVITY_TYPES = {
-  creado: 'Prospecto creado',
-  reanalisis: 'Reanálisis',
+  creado: 'Análisis realizado · prospecto creado',
+  reanalisis: 'Análisis realizado · reanálisis',
   estado: 'Cambio de estado',
   notas: 'Notas actualizadas',
   importado: 'Importado',
@@ -39,6 +39,13 @@ export const ACTIVITY_TYPES = {
   email: 'Email',
   reunion: 'Reunión',
   otro: 'Otra actividad',
+  asignacion: 'Asignación',
+  seguimiento: 'Seguimiento programado',
+  seguimiento_hecho: 'Seguimiento completado',
+  seguimiento_cancelado: 'Seguimiento cancelado',
+  login: 'Inició sesión',
+  logout: 'Cerró sesión',
+  usuario: 'Gestión de usuarios',
 } as const;
 
 export type ActivityType = keyof typeof ACTIVITY_TYPES;
@@ -68,6 +75,10 @@ export interface ProspectSummary {
   analyzedAt: string;
   createdAt: string;
   lastActivityAt: string;
+  assignedUserId: string | null;
+  assignedUserName: string | null;
+  /** Próximo seguimiento pendiente (fecha ISO), si hay. */
+  nextFollowupAt: string | null;
 }
 
 export interface Activity {
@@ -78,6 +89,26 @@ export interface Activity {
   fromStatus: string | null;
   toStatus: string | null;
   createdAt: string;
+  userId: string | null;
+  userName: string | null;
+  prospectId: string | null;
+  prospectName?: string | null;
+}
+
+export type FollowupStatus = 'pendiente' | 'hecho' | 'cancelado';
+
+export interface Followup {
+  id: number;
+  prospectId: string;
+  prospectName?: string;
+  userId: string | null;
+  userName: string | null;
+  dueAt: string;
+  note: string;
+  status: FollowupStatus;
+  createdAt: string;
+  completedAt: string | null;
+  overdue: boolean;
 }
 
 export interface AuditEntry {
@@ -89,6 +120,7 @@ export interface AuditEntry {
   problemsCount: number;
   durationMs: number;
   source: string;
+  userName: string | null;
 }
 
 export interface ProspectDetail extends ProspectSummary {
@@ -100,6 +132,7 @@ export interface ProspectDetail extends ProspectSummary {
   budget: Budget;
   audits: AuditEntry[];
   activities: Activity[];
+  followups: Followup[];
   /** Último análisis completo (datos de Maps, web, auditoría…). */
   analysis: AnalysisResult;
 }
@@ -110,8 +143,10 @@ export interface ProspectFilter {
   vertical?: string;
   minScore?: number;
   maxScore?: number;
-  sort?: 'name' | 'vertical' | 'score' | 'potential' | 'status' | 'lastActivity' | 'analyzedAt';
+  sort?: 'name' | 'vertical' | 'score' | 'potential' | 'status' | 'lastActivity' | 'analyzedAt' | 'nextFollowup';
   dir?: 'asc' | 'desc';
+  /** id de usuario, 'none' (sin asignar) o undefined (todos). */
+  assignedTo?: string;
 }
 
 export interface ProspectUpdate {
@@ -119,6 +154,8 @@ export interface ProspectUpdate {
   notes?: string;
   /** Valor acordado al cerrar. null = usar el valor potencial. */
   closedValue?: number | null;
+  /** Vendedor asignado (null = sin asignar). Solo administradores. */
+  assignedUserId?: string | null;
 }
 
 export interface Settings {
