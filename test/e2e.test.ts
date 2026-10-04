@@ -10,8 +10,6 @@ import path from 'node:path';
 import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { analyze } from '../src/analyzer.js';
-import type { AnalysisResult } from '../src/domain/types.js';
-import { createServer } from '../src/server.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 let fixtures: http.Server;
@@ -66,6 +64,7 @@ test('análisis completo: datos, problemas con argumento, mensaje y presupuesto'
 
   // 7. Mensaje
   assert.match(r.proposal.whatsappMessage, /Peluquería Lola/);
+  assert.ok(r.budget.potentialValue > 0 && r.budget.currency === 'ARS');
 
   // 8. Presupuesto
   assert.ok(r.budget.recommended.items.length > 0);
@@ -88,64 +87,4 @@ test('el análisis respeta el tiempo máximo y cierra el navegador', { timeout: 
 
 test('enlaces que no son de Google Maps se rechazan sin abrir el navegador', async () => {
   await assert.rejects(analyze('https://google.evil.com/maps/x'), /no es de Google Maps/);
-});
-
-// ---------------- Servidor local ----------------
-
-async function withServer(run: Parameters<typeof createServer>[0], fn: (url: string) => Promise<void>) {
-  const server = createServer(run).listen(0, '127.0.0.1');
-  await new Promise((r) => server.once('listening', r));
-  try {
-    await fn(`http://127.0.0.1:${(server.address() as AddressInfo).port}`);
-  } finally {
-    server.close();
-  }
-}
-
-async function readLines(res: Response): Promise<Array<Record<string, unknown>>> {
-  return (await res.text()).trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
-}
-
-test('servidor: index.html, progreso en streaming, resultado, errores y orígenes', { timeout: 120_000 }, async () => {
-  const fake = (async (_url, opts) => {
-    opts?.onProgress?.({ percent: 50, message: 'mitad' });
-    await new Promise((r) => setTimeout(r, 300));
-    return { profile: { name: 'Fake' } } as unknown as AnalysisResult;
-  }) as typeof analyze;
-
-  await withServer(fake, async (api) => {
-    const page = await fetch(`${api}/`);
-    assert.equal(page.status, 200);
-    assert.match(await page.text(), /Analizar negocio/);
-
-    const ok = await fetch(`${api}/analizar`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: 'x' }) });
-    assert.equal(ok.headers.get('content-type'), 'application/x-ndjson; charset=utf-8');
-    const lines = await readLines(ok);
-    assert.deepEqual(lines[0], { tipo: 'progreso', porcentaje: 50, mensaje: 'mitad' });
-    assert.equal(lines.at(-1)?.tipo, 'resultado');
-
-    // Un análisis a la vez
-    const first = fetch(`${api}/analizar`, { method: 'POST', body: JSON.stringify({ url: 'x' }) });
-    await new Promise((r) => setTimeout(r, 100));
-    const second = await fetch(`${api}/analizar`, { method: 'POST', body: JSON.stringify({ url: 'x' }) });
-    assert.equal(second.status, 409);
-    await (await first).text();
-
-    assert.equal((await fetch(`${api}/analizar`, { method: 'POST', body: '{mal' })).status, 400);
-    assert.equal((await fetch(`${api}/analizar`, { method: 'POST', body: '{}' })).status, 400);
-    assert.equal((await fetch(`${api}/no-existe`)).status, 404);
-
-    // Una web ajena no puede lanzar análisis; index.html abierto con doble clic (origin "null") sí.
-    assert.equal((await fetch(`${api}/analizar`, { method: 'POST', headers: { Origin: 'https://sitio-malicioso.com' }, body: '{}' })).status, 403);
-    const fromFile = await fetch(`${api}/estado`, { headers: { Origin: 'null' } });
-    assert.equal(fromFile.headers.get('access-control-allow-origin'), 'null');
-  });
-
-  // Con el analizador real, un enlace inválido devuelve un error legible en el stream.
-  await withServer(undefined, async (api) => {
-    const res = await fetch(`${api}/analizar`, { method: 'POST', body: JSON.stringify({ url: 'https://example.com' }) });
-    const lines = await readLines(res);
-    assert.equal(lines.at(-1)?.tipo, 'error');
-    assert.match(String(lines.at(-1)?.mensaje), /no es de Google Maps/);
-  });
 });

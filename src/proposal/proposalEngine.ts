@@ -139,7 +139,7 @@ export function buildProposal(ctx: AuditContext, audit: AuditResult): Proposal {
   services.sort((a, b) => b.fitScore - a.fitScore);
 
   const proposal: Proposal = { salesArguments, services, whatsappMessage: '' };
-  proposal.whatsappMessage = buildWhatsappMessage(ctx, audit, proposal);
+  proposal.whatsappMessage = buildWhatsappMessage(ctx, proposal);
   proposal.whatsappLink = whatsappLink(ctx.profile.phone, proposal.whatsappMessage);
   return proposal;
 }

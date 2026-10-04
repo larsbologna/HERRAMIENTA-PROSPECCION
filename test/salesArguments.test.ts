@@ -50,7 +50,7 @@ test('cada problema genera un argumento con datos reales del negocio', () => {
   assert.equal(by['rep-few-reviews']!.impact, 'Alto');
   assert.match(by['rep-few-reviews']!.problem, /31/);
   assert.match(by['rep-few-reviews']!.reason, /Trattoria Mia/);
-  assert.equal(by['rep-few-reviews']!.service, 'Sistema QR para reseñas y Optimización de Google Maps');
+  assert.equal(by['rep-few-reviews']!.service, 'Gestión de reputación y Optimización de Google Maps');
 
   assert.equal(by['wa-no-auto-reply']!.problem, 'No responde consultas automáticamente.');
   assert.equal(by['wa-no-auto-reply']!.impact, 'Medio-Alto');

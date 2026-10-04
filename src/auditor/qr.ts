@@ -16,7 +16,7 @@ export function evaluateQr({ profile, vertical, metrics }: AuditContext): QrReco
 
   if (rating !== undefined && rating < 4.5) {
     points += 2;
-    reasons.push(`Calificación ${rating.toFixed(1)}★: filtrar experiencias negativas a un canal interno protege la nota pública.`);
+    reasons.push(`Calificación ${rating.toFixed(1)}★: sumar reseñas de clientes satisfechos y responder las negativas mejora la nota pública.`);
   }
   if (metrics.daysSinceLastReview !== undefined && metrics.daysSinceLastReview > 30) {
     points += 2;

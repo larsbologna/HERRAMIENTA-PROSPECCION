@@ -9,7 +9,8 @@ export interface ServiceDefinition {
 /** Catálogo de servicios del Gestor de Presencia Online. Editable para ajustar textos o añadir servicios. */
 export const SERVICE_CATALOG: Record<ServiceId, ServiceDefinition> = {
   'maps-optimization': { id: 'maps-optimization', name: 'Optimización de Google Maps', pitch: 'ficha completa y optimizada para aparecer antes que la competencia' },
-  'qr-reviews': { id: 'qr-reviews', name: 'Sistema QR para reseñas', pitch: 'un sistema QR que multiplica las reseñas de 5★ y filtra las quejas en privado' },
+  // id histórico "qr-reviews" (se conserva por compatibilidad con datos guardados).
+  'qr-reviews': { id: 'qr-reviews', name: 'Gestión de reputación', pitch: 'un sistema para pedir reseñas a cada cliente y responderlas todas a tiempo' },
   website: { id: 'website', name: 'Sitio web profesional', pitch: 'una web profesional, rápida y pensada para móviles' },
   'whatsapp-ai-bot': { id: 'whatsapp-ai-bot', name: 'Bot IA para WhatsApp', pitch: 'un asistente IA en WhatsApp que responde y agenda 24/7' },
   'admin-dashboard': { id: 'admin-dashboard', name: 'Dashboard administrativo', pitch: 'un panel para ver reseñas, consultas y reservas en un solo lugar' },
