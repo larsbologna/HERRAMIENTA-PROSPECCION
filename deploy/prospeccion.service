@@ -1,0 +1,29 @@
+# systemd: mantiene la herramienta corriendo y la reinicia si se cae o si reinicia el servidor.
+#   sudo cp deploy/prospeccion.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now prospeccion
+#   journalctl -u prospeccion -f        (ver registros)
+
+[Unit]
+Description=Prospección · CRM comercial
+After=network.target
+
+[Service]
+Type=simple
+User=prospeccion
+Group=prospeccion
+WorkingDirectory=/opt/prospeccion
+# Las variables (HOST, TRUST_PROXY, PUBLIC_URL…) se leen de /opt/prospeccion/.env
+ExecStart=/usr/bin/npm run serve
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+
+# Endurecimiento: sin escalada de privilegios, /usr y /etc en solo lectura, sin acceso a /home.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/prospeccion/data
+
+[Install]
+WantedBy=multi-user.target

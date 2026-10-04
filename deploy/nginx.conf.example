@@ -1,0 +1,52 @@
+# Nginx → Prospección (Node en 127.0.0.1:3000)
+# Copiar a /etc/nginx/sites-available/prospeccion, reemplazar crm.tudominio.com y:
+#   sudo ln -s /etc/nginx/sites-available/prospeccion /etc/nginx/sites-enabled/
+#   sudo nginx -t && sudo systemctl reload nginx
+#   sudo certbot --nginx -d crm.tudominio.com     (agrega el bloque HTTPS y la redirección)
+
+# Límite de intentos de login por IP (va fuera del bloque server; sites-enabled se incluye dentro de http).
+limit_req_zone $binary_remote_addr zone=prospeccion_login:10m rate=20r/m;
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name crm.tudominio.com;
+
+    # Las peticiones de la app son chicas (JSON); el límite evita abusos.
+    client_max_body_size 1m;
+
+    # Cabeceras que la app usa para saber la IP real y si la conexión es HTTPS (TRUST_PROXY=true).
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Host  $host;
+    proxy_http_version 1.1;
+    proxy_set_header Connection        "";
+
+    # Análisis: respuesta en streaming que puede durar varios minutos.
+    location = /api/analizar {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
+
+    # Login: límite adicional por IP en Nginx (la app ya bloquea tras 5 intentos fallidos).
+    location = /api/auth/login {
+        limit_req zone=prospeccion_login burst=10 nodelay;
+        proxy_pass http://127.0.0.1:3000;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_read_timeout 60s;
+    }
+}
+
+# Si usás Cloudflare con proxy (nube naranja), para que $remote_addr sea la IP real del visitante
+# podés incluir las IPs de Cloudflare (https://www.cloudflare.com/ips/):
+#   set_real_ip_from 173.245.48.0/20;   # …una línea por rango
+#   real_ip_header CF-Connecting-IP;
+# La app igual lee CF-Connecting-IP por su cuenta cuando TRUST_PROXY=true.

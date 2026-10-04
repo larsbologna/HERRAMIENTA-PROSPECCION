@@ -1,7 +1,6 @@
 import type { AuditContext } from '../auditor/context.js';
 import type {
   AuditResult,
-  ImprovementPotential,
   Priority,
   Proposal,
   SalesArgument,
@@ -139,9 +138,8 @@ export function buildProposal(ctx: AuditContext, audit: AuditResult): Proposal {
   linkArgumentsToServices(services, salesArguments);
   services.sort((a, b) => b.fitScore - a.fitScore);
 
-  const potential = computePotential(audit, services);
-  const proposal: Proposal = { salesArguments, services, potential, whatsappMessage: '' };
-  proposal.whatsappMessage = buildWhatsappMessage(ctx, audit, proposal);
+  const proposal: Proposal = { salesArguments, services, whatsappMessage: '' };
+  proposal.whatsappMessage = buildWhatsappMessage(ctx, proposal);
   proposal.whatsappLink = whatsappLink(ctx.profile.phone, proposal.whatsappMessage);
   return proposal;
 }
@@ -173,22 +171,4 @@ function linkArgumentsToServices(services: ServiceRecommendation[], args: SalesA
       if (!svc.solves.includes(arg.problem)) svc.solves.push(arg.problem);
     }
   }
-}
-
-export function computePotential(audit: AuditResult, services: ServiceRecommendation[]): ImprovementPotential {
-  const current = audit.overallScore;
-  const gain = services
-    .filter((s) => s.priority !== 'baja')
-    .reduce((sum, s) => sum + SERVICE_CATALOG[s.id].areaGain * (s.fitScore / 100), 0);
-  // Proyección conservadora: como mucho +45 puntos y nunca por encima de 92.
-  const projected = Math.min(92, current + 45, Math.max(current, Math.round(current + gain * 0.8)));
-  const delta = projected - current;
-  const level = delta >= 35 ? 'Muy alto' : delta >= 20 ? 'Alto' : delta >= 10 ? 'Medio' : 'Bajo';
-  const explanation =
-    delta >= 20
-      ? `La presencia online actual (${current}/100) deja muchos clientes sobre la mesa. Con los servicios recomendados podría llegar a ~${projected}/100.`
-      : delta >= 10
-        ? `Buena base (${current}/100) con mejoras concretas que pueden llevarla a ~${projected}/100.`
-        : `La presencia ya es sólida (${current}/100); el margen está en automatización y fidelización.`;
-  return { currentScore: current, projectedScore: projected, level, explanation };
 }

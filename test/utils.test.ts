@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { relativeDateToDays } from '../src/utils/relativeDate.js';
 import { parseLocaleNumber, parseRating, stripLabel } from '../src/utils/text.js';
 import { whatsappLink } from '../src/proposal/whatsappMessage.js';
-import { isMapsUrl } from '../src/scraper/mapsScraper.js';
+import { isMapsUrl, parseReviewCount } from '../src/scraper/mapsScraper.js';
 import { isSocialOrDirectory } from '../src/scraper/websiteAnalyzer.js';
 
 test('parseLocaleNumber entiende formatos locales', () => {
@@ -45,6 +45,20 @@ test('isMapsUrl', () => {
   assert.ok(!isMapsUrl('https://example.com/maps'));
   assert.ok(!isMapsUrl('https://www.google.com/search?q=x'));
   assert.ok(!isMapsUrl('no es url'));
+  assert.ok(isMapsUrl('https://maps.google.com/?cid=123'));
+  // Dominios que imitan a Google: rechazados
+  for (const u of ['https://google.evil.com/maps/x', 'https://google.attacker.net/maps', 'https://evilgoo.gl/x', 'https://goo.gl.attacker.com/x', 'https://notgoogle.com/maps', 'ftp://www.google.com/maps']) {
+    assert.ok(!isMapsUrl(u), u);
+  }
+});
+
+test('parseReviewCount no confunde la calificación con la cantidad', () => {
+  assert.equal(parseReviewCount('23 reseñas'), 23);
+  assert.equal(parseReviewCount('4,1(23)'), 23);
+  assert.equal(parseReviewCount('4,6 (1.234)'), 1234);
+  assert.equal(parseReviewCount('4,5(1,2 mil)'), 1200);
+  assert.equal(parseReviewCount('4,1'), undefined);
+  assert.equal(parseReviewCount(''), undefined);
 });
 
 test('isSocialOrDirectory', () => {

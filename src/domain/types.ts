@@ -1,3 +1,5 @@
+import type { DataBasis, DataField, DataQuality } from './reliability.js';
+
 /**
  * Modelo de dominio compartido por scraper, auditor, propuesta, informe y agentes.
  * Todo lo que se guarda en el JSON del informe está tipado aquí: es el "contrato"
@@ -74,6 +76,8 @@ export interface BusinessProfile {
   scrapedAt: string;
   /** Avisos del scraper (campos no encontrados, bloqueos, etc.). */
   warnings: string[];
+  /** Confiabilidad de cada dato: valor, estado, confianza, fuente y método (ausente en análisis antiguos). */
+  dataQuality?: DataQuality;
 }
 
 /** Resultado de analizar el sitio web del negocio. */
@@ -186,6 +190,11 @@ export interface AuditResult {
     daysSinceLastReview?: number;
     daysSinceLastPost?: number;
   };
+  /**
+   * Problemas que las reglas habrían marcado pero que NO se afirman porque el dato
+   * en el que se basan no está verificado (no encontrado, error o confianza baja).
+   */
+  unverified?: Array<{ findingId: string; title: string; fields: DataField[] }>;
 }
 
 export type ServiceId =
@@ -211,14 +220,6 @@ export interface ServiceRecommendation {
   solves: string[];
 }
 
-export interface ImprovementPotential {
-  currentScore: number;
-  projectedScore: number;
-  /** Etiqueta cualitativa: "Muy alto", "Alto", "Medio", "Bajo". */
-  level: string;
-  explanation: string;
-}
-
 export type SalesImpact = 'Bajo' | 'Medio' | 'Medio-Alto' | 'Alto';
 
 /**
@@ -240,38 +241,67 @@ export interface SalesArgument {
   benefit: string;
   /** Dato observado que respalda el argumento (opcional). */
   evidence?: string;
+  /** Datos verificados en los que se apoya (valor, confianza, fuente y método). */
+  basis?: DataBasis[];
 }
 
 export interface Proposal {
   /** Un argumento comercial por cada problema detectado, ordenado por impacto. */
   salesArguments: SalesArgument[];
   services: ServiceRecommendation[];
-  potential: ImprovementPotential;
   whatsappMessage: string;
   /** Enlace wa.me listo para abrir (si se conoce el teléfono). */
   whatsappLink?: string;
 }
 
-export interface AuditReport {
-  id: string;
-  createdAt: string;
-  input: { url: string };
-  profile: BusinessProfile;
-  website?: WebsiteAnalysis;
-  audit: AuditResult;
-  proposal: Proposal;
-  executiveSummary: string;
-  screenshots: Screenshot[];
-  /** Aportes de agentes IA (locales o de la FÁBRICA) ejecutados en el pipeline. */
-  agentContributions: AgentContributionRecord[];
-  version: number;
+export interface BudgetItem {
+  id: ServiceId;
+  name: string;
+  priority: Priority;
+  /** Pago inicial (implementación). */
+  setup: number;
+  /** Cuota mensual (mantenimiento / servicio). */
+  monthly: number;
 }
 
-export interface AgentContributionRecord {
-  agentId: string;
-  agentName: string;
-  ok: boolean;
-  error?: string;
-  notes?: string;
+export interface BudgetOption {
+  label: string;
+  description: string;
+  items: BudgetItem[];
+  setup: number;
+  monthly: number;
+  /** Descuento aplicado al pago inicial por contratar varios servicios (0 si no aplica). */
+  discountPct: number;
+  setupAfterDiscount: number;
+  /** Meses de contrato considerados para el total (precios.json → mesesContrato). */
+  contractMonths: number;
+  /** Pago inicial con descuento + cuota mensual × meses de contrato. */
+  total: number;
+}
+
+/** Presupuesto sugerido a partir de los servicios recomendados y de precios.json. */
+export interface Budget {
+  currency: string;
+  note: string;
+  /** Solo servicios de prioridad alta. */
+  recommended: BudgetOption;
+  /** Prioridad alta + media. */
+  complete: BudgetOption;
+  /** Valor potencial del prospecto: total del plan recomendado. */
+  potentialValue: number;
+  /** Total del proyecto: total del plan completo. */
+  projectTotal: number;
+}
+
+/** Resultado completo de un análisis (lo que muestra la interfaz). */
+export interface AnalysisResult {
+  url: string;
+  analyzedAt: string;
   durationMs: number;
+  profile: BusinessProfile;
+  website?: WebsiteAnalysis;
+  vertical: { id: string; label: string };
+  audit: AuditResult;
+  proposal: Proposal;
+  budget: Budget;
 }

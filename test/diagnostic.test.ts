@@ -109,16 +109,20 @@ test('ficha con riesgos: los marca como REVISAR con el motivo', { timeout: 90_00
   const r = await runMapsDiagnostic(browser, `${base}/maps/place/riesgos`, { outDir: path.join(tmp, 'riesgos') });
   assert.deepEqual(r.resumen.discrepancias, []);
 
-  // Cantidad de reseñas leída del texto del bloque → lee la calificación
+  // Cantidad de reseñas leída del texto completo del bloque ("4,1(23)"): el valor se corrige
+  // tomando el número entre paréntesis, pero el diagnóstico la marca para revisar por la fuente.
   const count = field(r, 'reviewCount');
-  assert.equal(count.valor, 4.1);
+  assert.equal(count.valor, 23);
+  assert.equal(count.valorCrudo, '4,1(23)');
   assert.equal(count.fuente.estrategia, '2 de 3');
   assert.equal(count.estado, 'REVISAR');
-  assert.match(count.motivoConfianza.join(' '), /parece la calificación/);
+  assert.match(count.motivoConfianza.join(' '), /texto completo del bloque/);
 
   // Dos Place ID en la página
   const pid = field(r, 'placeId');
-  assert.equal(pid.valor, 'ChIJOtroNegocioCercano_000000000');
+  // Se lee el más frecuente, pero al ser dudoso la herramienta NO lo usa (podría ser de otro negocio).
+  assert.equal(pid.valorCrudo, 'ChIJOtroNegocioCercano_000000000');
+  assert.ok(pid.valor === undefined || pid.valor === null || pid.valor === '', `valor: ${String(pid.valor)}`);
   assert.equal(pid.estado, 'REVISAR');
   assert.equal(pid.extra?.distintos, 2);
   assert.match(pid.avisos.join(' '), /otro negocio/);

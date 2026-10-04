@@ -1,4 +1,5 @@
 import type { AuditContext } from '../auditor/context.js';
+import { basisFor } from '../domain/reliability.js';
 import type { AuditArea, Finding, SalesArgument, SalesImpact, ServiceId, Severity } from '../domain/types.js';
 import { SERVICE_CATALOG } from './services.js';
 
@@ -202,7 +203,7 @@ const ARGUMENTS: Record<string, ArgumentTemplate> = {
     reason: (c) =>
       `Muchos clientes descartan directamente los negocios por debajo de 4★. Con ${rating(c)}★, ${nombre(c)} pierde clientes incluso antes de que lean una sola reseña, y cada opinión negativa nueva pesa todavía más.`,
     services: ['qr-reviews', 'support-automation'],
-    benefit: () => 'Subir la calificación pública con reseñas de clientes satisfechos y canalizar las quejas en privado, antes de que lleguen a Google.',
+    benefit: () => 'Subir la calificación pública con un flujo constante de reseñas de clientes satisfechos y respuestas profesionales a cada crítica.',
   },
   'rep-medium-rating': {
     problem: (c) => `La calificación (${rating(c)}★) está por debajo de la competencia mejor valorada.`,
@@ -237,7 +238,7 @@ const ARGUMENTS: Record<string, ArgumentTemplate> = {
     reason: () =>
       'Las reseñas negativas son las que más leen los clientes indecisos. Una queja sin respuesta parece una queja con razón; una respuesta profesional, en cambio, demuestra compromiso y suele neutralizar el daño, e incluso mejorar la imagen.',
     services: ['support-automation', 'qr-reviews'],
-    benefit: () => 'Convertir las críticas en una muestra de buena atención y evitar que nuevas quejas lleguen a Google gracias al filtro de feedback privado.',
+    benefit: () => 'Convertir las críticas en una muestra de buena atención y detectar a tiempo los problemas que las generan.',
   },
   'rep-stale-reviews': {
     problem: (c) => `No recibe reseñas nuevas desde hace ~${c.metrics.daysSinceLastReview ?? '?'} días.`,
@@ -456,6 +457,7 @@ export function buildSalesArgument(ctx: AuditContext, finding: Finding): SalesAr
       service: serviceLabel(services),
       benefit: `Resolverlo con ${SERVICE_CATALOG[services[0]!].pitch}.`,
       evidence: finding.evidence,
+      ...withBasis(ctx, finding),
     };
   }
   return {
@@ -468,7 +470,14 @@ export function buildSalesArgument(ctx: AuditContext, finding: Finding): SalesAr
     service: serviceLabel(t.services),
     benefit: t.benefit(ctx),
     evidence: finding.evidence,
+    ...withBasis(ctx, finding),
   };
+}
+
+/** Datos verificados que respaldan el argumento (valor, confianza, fuente y método). */
+function withBasis(ctx: AuditContext, finding: Finding): { basis?: SalesArgument['basis'] } {
+  const basis = basisFor(ctx.profile.dataQuality, finding.id);
+  return basis?.length ? { basis } : {};
 }
 
 /** Un argumento por problema, ordenado por impacto (y, a igual impacto, por gravedad del hallazgo). */

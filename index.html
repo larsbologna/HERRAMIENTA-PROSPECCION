@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prospección · Abrir</title>
+<style>
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #0F0F0F; color: #F8F8F8; font: 15px/1.6 ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; padding: 16px; }
+  .card { max-width: 520px; background: #202020; border: 1px solid rgba(248,248,248,.08); border-radius: 16px; padding: 28px; }
+  .mark { width: 40px; height: 40px; border-radius: 11px; background: #5DD62C; color: #0F0F0F; display: grid; place-items: center; font-weight: 800; margin-bottom: 16px; box-shadow: 0 0 24px -4px rgba(93,214,44,.6); }
+  h1 { margin: 0 0 8px; font-size: 20px; }
+  p { margin: 0 0 10px; color: rgba(248,248,248,.7); }
+  code { background: rgba(248,248,248,.08); padding: 2px 6px; border-radius: 6px; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="mark">P</div>
+    <h1 id="title">Abriendo la herramienta…</h1>
+    <div id="help" hidden>
+      <p>La herramienta no está iniciada. Abrila con doble clic en <code>iniciar.bat</code> (Windows) o <code>iniciar.command</code> (Mac), o ejecutá <code>npm start</code>.</p>
+      <p>Se abre sola en <code>http://localhost:3000</code>. Si ya la iniciaste, recargá esta página.</p>
+    </div>
+  </div>
+<script>
+  // Si la herramienta está corriendo, ir directo a la aplicación.
+  fetch('http://localhost:3000/api/estado', { cache: 'no-store' })
+    .then((r) => { if (!r.ok) throw new Error(); location.replace('http://localhost:3000/'); })
+    .catch(() => { document.getElementById('title').textContent = 'La herramienta no está iniciada'; document.getElementById('help').hidden = false; });
+</script>
+</body>
+</html>

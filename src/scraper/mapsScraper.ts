@@ -5,16 +5,19 @@ import { config } from '../config/index.js';
 import { clean, parseLocaleNumber, parseRating, stripLabel, unique } from '../utils/text.js';
 import { relativeDateToDays } from '../utils/relativeDate.js';
 import { newDesktopContext } from './browser.js';
+import { assessDataQuality, type ScrapeSteps } from './dataQuality.js';
 import {
   EXTRACT_ABOUT,
   EXTRACT_OVERVIEW,
   EXTRACT_REVIEWS,
+  type RawAbout,
   type RawOverview,
   type RawReview,
 } from './scripts/mapsScripts.js';
 
 export interface ScrapeOptions {
-  screenshotDir: string;
+  /** Carpeta para capturas. Si no se indica, no se hacen capturas (más rápido). */
+  screenshotDir?: string;
   onProgress?: (message: string) => void;
   onScreenshot?: (shot: Screenshot) => void;
   /** Máximo de reseñas a muestrear para calcular frecuencia y tasa de respuesta. */
@@ -29,7 +32,7 @@ export interface ScrapeOptions {
 export interface ScrapeInspector {
   overview?: (page: Page, raw: RawOverview) => Promise<void>;
   reviews?: (page: Page, raw: RawReview[]) => Promise<void>;
-  about?: (page: Page, raw: { items: string[]; description: string }) => Promise<void>;
+  about?: (page: Page, raw: RawAbout) => Promise<void>;
 }
 
 export interface MapsScrapeResult {
@@ -37,14 +40,18 @@ export interface MapsScrapeResult {
   screenshots: Screenshot[];
 }
 
-const MAPS_HOST = /(^|\.)google\.[a-z.]+$|maps\.app\.goo\.gl|goo\.gl/i;
+/** Dominios de Google: google.com, google.es, google.com.ar, google.co.uk… (y nada más). */
+const GOOGLE_HOST = /^(www\.|maps\.)?google\.(com|[a-z]{2}|com?\.[a-z]{2})$/i;
+const SHORT_HOSTS = new Set(['maps.app.goo.gl', 'goo.gl']);
 
 export function isMapsUrl(raw: string): boolean {
   try {
-    const url = new URL(raw);
-    if (!/^https?:$/.test(url.protocol)) return false;
-    if (/maps\.app\.goo\.gl|goo\.gl/i.test(url.hostname)) return true;
-    return MAPS_HOST.test(url.hostname) && (url.pathname.startsWith('/maps') || url.searchParams.has('cid'));
+    const url = new URL(raw.trim());
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return false;
+    const host = url.hostname.toLowerCase();
+    if (SHORT_HOSTS.has(host)) return host === 'maps.app.goo.gl' || url.pathname.startsWith('/maps');
+    if (!GOOGLE_HOST.test(host)) return false;
+    return host.startsWith('maps.') || url.pathname.startsWith('/maps') || url.searchParams.has('cid');
   } catch {
     return false;
   }
@@ -69,6 +76,7 @@ export async function scrapeMapsProfile(browser: Browser, inputUrl: string, opts
   const page = await context.newPage();
 
   const shoot = async (id: string, label: string, fullPage = false) => {
+    if (!opts.screenshotDir) return;
     const file = path.join('screenshots', `${id}.png`);
     try {
       await page.screenshot({ path: path.join(opts.screenshotDir, `${id}.png`), fullPage });
@@ -92,7 +100,8 @@ export async function scrapeMapsProfile(browser: Browser, inputUrl: string, opts
       .catch(() => false);
     if (!found) warnings.push('No se encontró el encabezado de la ficha: puede que la URL no sea de un negocio.');
     await page.waitForTimeout(2_000);
-    await scrollPanel(page, 4);
+    // Se recorre el panel hasta el final: las secciones (fotos, novedades…) cargan al hacerse visibles.
+    const panelFullyLoaded = await scrollPanelToEnd(page, 12);
 
     progress('Extrayendo datos de la ficha…');
     const raw = (await page.evaluate(EXTRACT_OVERVIEW)) as RawOverview;
@@ -100,17 +109,42 @@ export async function scrapeMapsProfile(browser: Browser, inputUrl: string, opts
     await scrollPanelTop(page);
     await shoot('maps-ficha', 'Ficha de Google Maps');
 
+    const steps: ScrapeSteps = { headerFound: found, panelFullyLoaded, reviews: { state: 'no_abierta', sortedByNewest: false }, about: { state: 'no_abierta' } };
+
     progress('Leyendo reseñas recientes…');
-    const reviews = await extractReviews(page, opts.maxReviews ?? 40, warnings);
+    let reviews: RawReview[] = [];
+    try {
+      const r = await extractReviews(page, opts.maxReviews ?? 40, warnings);
+      reviews = r.reviews;
+      steps.reviews = { state: r.opened ? 'ok' : 'no_abierta', sortedByNewest: r.sortedByNewest };
+    } catch (err) {
+      steps.reviews = { state: 'error', sortedByNewest: false, error: (err as Error).message.split('\n')[0] };
+      warnings.push(`Error al leer las reseñas: ${steps.reviews.error}`);
+    }
     await opts.inspect?.reviews?.(page, reviews);
     if (reviews.length) await shoot('maps-resenas', 'Reseñas en Google Maps');
 
     progress('Revisando información y servicios…');
-    const about = await extractAbout(page, warnings);
+    let about: RawAbout = { items: [], description: '', sections: 0 };
+    try {
+      const a = await extractAbout(page, warnings);
+      if (a) about = a;
+      steps.about = { state: a ? 'ok' : 'no_abierta' };
+    } catch (err) {
+      steps.about = { state: 'error', error: (err as Error).message.split('\n')[0] };
+      warnings.push(`Error al leer la pestaña Información: ${steps.about.error}`);
+    }
     await opts.inspect?.about?.(page, about);
     if (about.items.length) await shoot('maps-informacion', 'Información y servicios');
 
     const profile = normalizeProfile(inputUrl, page.url(), raw, reviews, about, warnings);
+    profile.dataQuality = assessDataQuality(raw, reviews, about, steps, profile);
+    // Un Place ID dudoso (varios en la página) no se usa: podría ser de un negocio cercano.
+    if (profile.dataQuality.fields.placeId.confidence === 'baja') profile.placeId = undefined;
+    // "Sin reseñas" comprobado → valor real 0 (distinto de "no se pudo leer").
+    if (profile.dataQuality.fields.reviewCount.status === 'cero' && profile.reviewCount === undefined) profile.reviewCount = 0;
+    if (profile.reviewCount === 0) profile.warnings = profile.warnings.filter((w) => !/cantidad de reseñas|calificación/.test(w));
+    if (profile.dataQuality.blocked) warnings.push('Google mostró una verificación o bloqueo: los datos no son confiables.');
     return { profile, screenshots };
   } finally {
     await context.close().catch(() => {});
@@ -145,6 +179,24 @@ async function openFirstResultIfList(page: Page, progress: (m: string) => void):
 
 const SCROLLABLE_PANEL = 'div[role="main"] div.m6QErb.DxyBCb, div[role="main"] div.m6QErb[tabindex="-1"]';
 
+/** Desplaza el panel hasta el final (o hasta `max` intentos). Devuelve true si llegó al final. */
+async function scrollPanelToEnd(page: Page, max: number): Promise<boolean> {
+  let lastHeight = -1;
+  for (let i = 0; i < max; i++) {
+    const state = (await page
+      .evaluate(
+        `(() => { const el = document.querySelector('${SCROLLABLE_PANEL}'); if (!el) return null; el.scrollBy(0, 1500); return { h: el.scrollHeight, end: el.scrollTop + el.clientHeight >= el.scrollHeight - 8 }; })()`,
+      )
+      .catch(() => null)) as { h: number; end: boolean } | null;
+    if (!state) return false;
+    await page.waitForTimeout(700);
+    // Al final y sin contenido nuevo cargado tras la espera.
+    if (state.end && state.h === lastHeight) return true;
+    lastHeight = state.h;
+  }
+  return false;
+}
+
 async function scrollPanel(page: Page, times: number): Promise<void> {
   for (let i = 0; i < times; i++) {
     await page
@@ -169,39 +221,43 @@ async function clickTab(page: Page, name: RegExp): Promise<boolean> {
   return true;
 }
 
-async function extractReviews(page: Page, max: number, warnings: string[]): Promise<RawReview[]> {
+async function extractReviews(page: Page, max: number, warnings: string[]): Promise<{ reviews: RawReview[]; opened: boolean; sortedByNewest: boolean }> {
   const opened = await clickTab(page, /reseñas|opiniones|reviews/i);
   if (!opened) {
     warnings.push('No se encontró la pestaña de reseñas.');
-    return [];
+    return { reviews: [], opened: false, sortedByNewest: false };
   }
-  // Ordenar por más recientes para medir frecuencia real.
+  // Ordenar por más recientes para medir frecuencia real. Si no se logra, las fechas
+  // de la muestra NO sirven para afirmar nada sobre la frecuencia (son las "más relevantes").
+  let sortedByNewest = false;
   const sort = page.locator('button[aria-label*="Ordenar" i], button[aria-label*="Sort" i]').first();
   if ((await sort.count()) > 0) {
     await sort.click().catch(() => {});
     await page.waitForTimeout(800);
     const newest = page.getByRole('menuitemradio', { name: /más recientes|newest|recientes/i }).first();
     if ((await newest.count()) > 0) {
-      await newest.click().catch(() => {});
+      sortedByNewest = await newest.click().then(() => true).catch(() => false);
       await page.waitForTimeout(2_000);
     }
   }
+  if (!sortedByNewest) warnings.push('No se pudieron ordenar las reseñas por "Más recientes": no se evalúa la frecuencia de reseñas.');
   let reviews: RawReview[] = [];
   for (let i = 0; i < 8 && reviews.length < max; i++) {
     reviews = (await page.evaluate(EXTRACT_REVIEWS)) as RawReview[];
     await scrollPanel(page, 1);
   }
   await scrollPanelTop(page);
-  return reviews.slice(0, max);
+  return { reviews: reviews.slice(0, max), opened: true, sortedByNewest };
 }
 
-async function extractAbout(page: Page, warnings: string[]): Promise<{ items: string[]; description: string }> {
+/** Devuelve undefined si la pestaña "Información" no se pudo abrir. */
+async function extractAbout(page: Page, warnings: string[]): Promise<RawAbout | undefined> {
   const opened = await clickTab(page, /información|acerca de|about/i);
   if (!opened) {
     warnings.push('No se encontró la pestaña "Información".');
-    return { items: [], description: '' };
+    return undefined;
   }
-  return (await page.evaluate(EXTRACT_ABOUT)) as { items: string[]; description: string };
+  return (await page.evaluate(EXTRACT_ABOUT)) as RawAbout;
 }
 
 function parseHours(raw: RawOverview): OpeningHours | undefined {
@@ -227,7 +283,7 @@ function normalizeProfile(
   resolvedUrl: string,
   raw: RawOverview,
   rawReviews: RawReview[],
-  about: { items: string[]; description: string },
+  about: RawAbout,
   warnings: string[],
 ): BusinessProfile {
   const reviews: ReviewSample[] = rawReviews.map((r) => ({
@@ -250,7 +306,11 @@ function normalizeProfile(
     ? Object.fromEntries(raw.histogram.map(([stars, count]) => [stars, parseLocaleNumber(count) ?? 0]))
     : undefined;
 
-  const description = clean(raw.description) || clean(about.description);
+  // La descripción del propietario (pestaña Información) tiene prioridad sobre el resumen de la ficha,
+  // que a veces escribe Google.
+  const description = clean(about.description) || clean(raw.description);
+  const ownerReplies = reviews.some((r) => r.hasOwnerResponse);
+  const claimed = raw.claimedSignals || ownerReplies;
   const website = cleanWebsite(raw.website);
   const profile: BusinessProfile = {
     sourceUrl,
@@ -259,7 +319,7 @@ function normalizeProfile(
     category: clean(raw.category),
     additionalCategories: [],
     rating: parseRating(raw.ratingText),
-    reviewCount: parseLocaleNumber(raw.reviewsText),
+    reviewCount: parseReviewCount(raw.reviewsText),
     address: stripLabel(raw.address),
     phone: stripLabel(raw.phone) ?? clean(raw.phone),
     website,
@@ -279,7 +339,8 @@ function normalizeProfile(
     posts,
     reviews,
     ratingHistogram: histogram,
-    isClaimed: raw.unclaimed ? false : raw.claimedSignals ? true : undefined,
+    // Señales contradictorias (ofrece reclamarla y a la vez hay actividad del propietario) → sin determinar.
+    isClaimed: raw.unclaimed && claimed ? undefined : raw.unclaimed ? false : claimed ? true : undefined,
     permanentlyClosed: raw.permanentlyClosed,
     socialLinks: raw.socialLinks,
     scrapedAt: new Date().toISOString(),
@@ -290,6 +351,18 @@ function normalizeProfile(
   if (profile.rating === undefined) warnings.push('No se pudo leer la calificación.');
   if (profile.reviewCount === undefined) warnings.push('No se pudo leer la cantidad de reseñas.');
   return profile;
+}
+
+/**
+ * "23 reseñas" → 23. Si el texto es el bloque completo de calificación ("4,1(23)"),
+ * la cantidad es el número entre paréntesis, no el primero (que es la calificación).
+ */
+export function parseReviewCount(text: string | undefined): number | undefined {
+  if (!text) return undefined;
+  const inParens = text.match(/\(\s*(\d[\d.,]*\s*(?:mil|k)?)\s*\)/i);
+  if (inParens?.[1]) return parseLocaleNumber(inParens[1]);
+  if (/^\s*[0-5][.,]\d\s*$/.test(text)) return undefined; // solo una calificación suelta
+  return parseLocaleNumber(text);
 }
 
 /** Maps envuelve algunos enlaces en /url?q=… : se desenvuelven. */

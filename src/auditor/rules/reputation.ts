@@ -2,9 +2,12 @@ import { collector, type AuditRule } from '../context.js';
 
 export const reputationRules: AuditRule = ({ profile, vertical, metrics }) => {
   const c = collector('rules:reputation');
-  const count = profile.reviewCount ?? 0;
+  // Sin contador leído no se afirma nada sobre el volumen (no es lo mismo que "0 reseñas").
+  const count = profile.reviewCount ?? (profile.dataQuality?.fields.reviewCount.status === 'cero' ? 0 : undefined);
 
-  if (count < 10) {
+  if (count === undefined) {
+    /* dato no disponible */
+  } else if (count < 10) {
     c.finding({ id: 'rep-very-few-reviews', area: 'reputation', severity: 'critical', title: 'Casi sin reseñas', detail: `Solo ${count} reseñas: genera poca confianza y Google lo posiciona por debajo de la competencia.` });
   } else if (count < 50) {
     c.finding({ id: 'rep-few-reviews', area: 'reputation', severity: 'high', title: 'Pocas reseñas', detail: `${count} reseñas. Los competidores mejor posicionados suelen superar las 100.` });

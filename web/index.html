@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prospección · CRM</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%235DD62C'/%3E%3Ctext x='16' y='22' font-family='Arial' font-weight='700' font-size='17' text-anchor='middle' fill='%230F0F0F'%3EP%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;550;600;650;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+<div class="auth hidden" id="auth"></div>
+<div class="app hidden" id="app">
+  <aside class="sidebar">
+    <a class="brand" href="/" data-link>
+      <span class="brand-mark">P</span>
+      <div><b>Prospección</b><small>CRM comercial</small></div>
+    </a>
+    <div class="nav-label">Menú</div>
+    <nav class="nav" id="nav"></nav>
+    <div class="sidebar-foot">
+      <div class="me" id="me"></div>
+      <div class="server-state" id="server-state"><span class="dot"></span>Conectado</div>
+    </div>
+  </aside>
+  <main class="main" id="view" tabindex="-1"></main>
+</div>
+<script type="module" src="/assets/js/app.js"></script>
+</body>
+</html>

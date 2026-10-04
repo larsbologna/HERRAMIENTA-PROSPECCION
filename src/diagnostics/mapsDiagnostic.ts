@@ -375,12 +375,14 @@ function overviewFields(probe: OverviewProbe, raw: RawOverview, p: BusinessProfi
 
   out.push(makeField({
     ...base, campo: 'Place ID (enlace "escribir reseña")', clave: 'placeId', probe: F.placeId, scraperRaw: raw.placeId, valor: p.placeId,
+    found: !!raw.placeId,
     checks: (f) => {
       const distinct = Number(F.placeId?.extra?.distintos ?? 0);
       if (distinct === 1) upgrade(f, 'alta', 'Es el único Place ID presente en la página.');
       if (distinct > 1) {
         downgrade(f, 'baja', `Hay ${distinct} Place ID distintos en la página y se tomó el primero.`);
-        f.avisos.push('Riesgo: el QR de reseñas podría enviar a los clientes a otro negocio.');
+        f.avisos.push('Riesgo: podría ser de otro negocio (el QR de reseñas enviaría a los clientes a otro lado).');
+        if (!p.placeId) f.avisos.push('Por eso la herramienta lo descarta y no lo usa.');
       }
     },
   }));
