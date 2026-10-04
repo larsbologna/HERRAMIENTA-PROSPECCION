@@ -1,4 +1,5 @@
 import type { AuditContext } from '../auditor/context.js';
+import { basisFor } from '../domain/reliability.js';
 import type { AuditArea, Finding, SalesArgument, SalesImpact, ServiceId, Severity } from '../domain/types.js';
 import { SERVICE_CATALOG } from './services.js';
 
@@ -456,6 +457,7 @@ export function buildSalesArgument(ctx: AuditContext, finding: Finding): SalesAr
       service: serviceLabel(services),
       benefit: `Resolverlo con ${SERVICE_CATALOG[services[0]!].pitch}.`,
       evidence: finding.evidence,
+      ...withBasis(ctx, finding),
     };
   }
   return {
@@ -468,7 +470,14 @@ export function buildSalesArgument(ctx: AuditContext, finding: Finding): SalesAr
     service: serviceLabel(t.services),
     benefit: t.benefit(ctx),
     evidence: finding.evidence,
+    ...withBasis(ctx, finding),
   };
+}
+
+/** Datos verificados que respaldan el argumento (valor, confianza, fuente y método). */
+function withBasis(ctx: AuditContext, finding: Finding): { basis?: SalesArgument['basis'] } {
+  const basis = basisFor(ctx.profile.dataQuality, finding.id);
+  return basis?.length ? { basis } : {};
 }
 
 /** Un argumento por problema, ordenado por impacto (y, a igual impacto, por gravedad del hallazgo). */

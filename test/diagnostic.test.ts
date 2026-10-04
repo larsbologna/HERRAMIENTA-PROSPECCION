@@ -120,7 +120,9 @@ test('ficha con riesgos: los marca como REVISAR con el motivo', { timeout: 90_00
 
   // Dos Place ID en la página
   const pid = field(r, 'placeId');
-  assert.equal(pid.valor, 'ChIJOtroNegocioCercano_000000000');
+  // Se lee el más frecuente, pero al ser dudoso la herramienta NO lo usa (podría ser de otro negocio).
+  assert.equal(pid.valorCrudo, 'ChIJOtroNegocioCercano_000000000');
+  assert.ok(pid.valor === undefined || pid.valor === null || pid.valor === '', `valor: ${String(pid.valor)}`);
   assert.equal(pid.estado, 'REVISAR');
   assert.equal(pid.extra?.distintos, 2);
   assert.match(pid.avisos.join(' '), /otro negocio/);

@@ -1,4 +1,5 @@
 import type { AreaScore, AuditArea, AuditResult, BusinessProfile, Finding, Severity, WebsiteAnalysis } from '../domain/types.js';
+import { FINDING_BASIS, isVerified } from '../domain/reliability.js';
 import { detectVertical, type Vertical } from '../domain/verticals.js';
 import type { AuditContext, AuditRule } from './context.js';
 import { computeMetrics } from './metrics.js';
@@ -39,8 +40,44 @@ export function buildContext(profile: BusinessProfile, website?: WebsiteAnalysis
     profile,
     website,
     vertical: vertical ?? detectVertical(profile.category, profile.name),
-    metrics: computeMetrics(profile),
+    metrics: trustedMetrics(profile),
   };
+}
+
+/** Métricas derivadas, sin las que se apoyan en datos no verificados. */
+function trustedMetrics(profile: BusinessProfile): AuditResult['metrics'] {
+  const metrics = computeMetrics(profile);
+  const q = profile.dataQuality;
+  if (!isVerified(q, 'reviewsRecency')) {
+    delete metrics.daysSinceLastReview;
+    delete metrics.reviewsLast30Days;
+    delete metrics.reviewsLast90Days;
+  }
+  if (!isVerified(q, 'reviewsSample')) delete metrics.ownerResponseRate;
+  if (!isVerified(q, 'posts')) delete metrics.daysSinceLastPost;
+  return metrics;
+}
+
+/**
+ * Solo se afirman los problemas cuyos datos están verificados. El resto queda registrado
+ * como "sin verificar" para revisarlo a mano, sin afectar el score ni generar argumentos.
+ */
+function gateFindings(ctx: AuditContext, findings: Finding[]): { kept: Finding[]; unverified: NonNullable<AuditResult['unverified']> } {
+  const q = ctx.profile.dataQuality;
+  const kept: Finding[] = [];
+  const unverified: NonNullable<AuditResult['unverified']> = [];
+  for (const f of findings) {
+    const basis = FINDING_BASIS[f.id] ?? [];
+    let missing = basis.filter((field) => !isVerified(q, field));
+    // WhatsApp "no visible": si hay web pero no se pudo abrir, no se sabe qué tiene.
+    if (q && f.id === 'wa-not-visible' && ctx.profile.website && !ctx.website?.reachable) missing = [...missing, 'website'];
+    // "Sin respuesta automática" solo se puede comprobar revisando una web propia (chat/bot);
+    // sin web no hay dónde mirarlo (las respuestas automáticas de WhatsApp no se ven desde fuera).
+    if (q && f.id === 'wa-no-auto-reply' && !(ctx.website?.reachable && !ctx.website.isSocialOrDirectory)) missing = [...missing, 'website'];
+    if (missing.length) unverified.push({ findingId: f.id, title: f.title, fields: [...new Set(missing)] });
+    else kept.push(f);
+  }
+  return { kept, unverified };
 }
 
 export function runAudit(ctx: AuditContext, rules: AuditRule[] = DEFAULT_RULES): AuditResult {
@@ -56,12 +93,16 @@ export function runAudit(ctx: AuditContext, rules: AuditRule[] = DEFAULT_RULES):
 
 /** Recalcula puntuaciones y QR a partir de hallazgos (se reutiliza cuando un agente añade hallazgos). */
 export function finalizeAudit(ctx: AuditContext, findings: Finding[], opportunities: AuditResult['opportunities']): AuditResult {
-  const sorted = dedupe(findings).sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
+  const { kept, unverified } = gateFindings(ctx, dedupe(findings));
+  const sorted = kept.sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
   const scores = scoreAreas(ctx, sorted);
   const overallScore = Math.round(
     scores.reduce((sum, s) => sum + s.score * AREA_WEIGHT[s.area as keyof typeof AREA_WEIGHT], 0),
   );
-  return { findings: sorted, opportunities: dedupe(opportunities), scores, overallScore, qr: evaluateQr(ctx), metrics: ctx.metrics };
+  return {
+    findings: sorted, opportunities: dedupe(opportunities), scores, overallScore, qr: evaluateQr(ctx), metrics: ctx.metrics,
+    ...(ctx.profile.dataQuality ? { unverified } : {}),
+  };
 }
 
 function dedupe<T extends { id: string }>(items: T[]): T[] {

@@ -103,6 +103,7 @@ Se configuran en **`precios.json`** (editalo con cualquier editor de texto):
 
 ```bash
 npm run analizar -- "https://maps.app.goo.gl/XXXX"     # analiza, guarda y muestra el resultado
+npm run analizar -- "<url>" --confiabilidad            # + valor, estado, confianza, fuente y método de cada dato
 npm run diagnose -- "https://maps.app.goo.gl/XXXX"     # modo diagnóstico del scraper
 npm run diagnose -- "<url>" --visible                  # viendo el navegador
 
@@ -113,6 +114,43 @@ npm run usuarios -- desactivar --usuario silvia                        # o: acti
 ```
 
 El **modo diagnóstico** muestra, para cada dato leído de Google Maps, el valor, el selector, el nivel de confianza y la fuente exacta, y genera `data/diagnostics/<fecha>/diagnostico.json` con el HTML de cada pestaña. Es la herramienta para ajustar selectores si Google cambia su página.
+
+---
+
+## Confiabilidad del dato
+
+Cada dato leído de Google Maps guarda **valor obtenido, estado, confianza, fuente y método**. Se ve en el perfil del prospecto (sección **Confiabilidad**) y por terminal con `npm run analizar -- "<url>" --confiabilidad`.
+
+| Estado | Significa | ¿Se usa para argumentar? |
+|---|---|---|
+| **Encontrado** | El dato se leyó de la ficha | Sí, con confianza alta o media |
+| **Valor real 0** | Se comprobó que no tiene (p. ej. "Sin reseñas", o la ficha cargó completa y no hay teléfono) | Sí, con confianza alta o media |
+| **No encontrado** | No se pudo leer y no hay prueba de que falte | **No**: no se afirma nada |
+| **Error de extracción** | La ficha o una pestaña no cargó, o Google bloqueó la lectura | **No** |
+
+**Regla central:** un problema solo se afirma (y genera argumento comercial) si los datos en los que se apoya están verificados. Si no, queda en la lista *"No se afirman (dato sin verificar)"* y no resta puntos al score. Cada argumento muestra el dato que lo respalda.
+
+Falsos positivos que se corrigieron:
+
+- **Reseñas:** si no se lee el contador, ya no se dice "Solo 0 reseñas". "Sin reseñas" comprobado sí cuenta como 0. El contador se valida contra el histograma de estrellas y contra la muestra leída.
+- **Frecuencia y última reseña:** solo se evalúan si se pudieron ordenar las reseñas por "Más recientes". Antes, con el orden "Más relevantes", podía decir "no recibe reseñas hace meses" sin ser cierto.
+- **Fotos:** se ignoran las estadísticas de autores de reseñas ("Local Guide · 12 reseñas · 340 fotos"). Sin un total visible, no se afirma que tenga pocas fotos.
+- **Publicaciones:** una "Respuesta del propietario" ya no se toma como publicación. "Sin publicaciones" solo se afirma si se recorrió la ficha completa.
+- **Descripción:** se prioriza la del propietario (pestaña Información). El resumen de la ficha puede escribirlo Google, así que no se usa para decir que es "muy breve".
+- **Cerrado permanentemente:** solo cuenta si figura en el encabezado, no en el texto de una reseña.
+- **Ficha reclamada:** se considera reclamada si el propietario responde reseñas o publica novedades. Si las señales se contradicen, queda "sin determinar".
+- **Place ID:** se toma de la URL. Si la página tiene varios (negocios cercanos), se descarta.
+- **Bloqueo de Google:** el análisis se detiene con un aviso y no guarda un prospecto con datos vacíos.
+- **WhatsApp sin respuesta automática:** solo se afirma si se revisó una web propia.
+
+### Validar con negocios reales
+
+Google cambia su página seguido. Antes de usar la herramienta con clientes, y cada tanto, conviene comparar con la ficha real:
+
+1. Elegí 10 negocios variados: con y sin web, con muchas y con pocas reseñas, reclamados y sin reclamar, uno sin reseñas.
+2. Corré `npm run diagnose -- "<url>"` con cada uno. El final muestra la tabla de confiabilidad.
+3. Abrí la ficha en el navegador y compará reseñas, calificación, fotos, descripción, publicaciones y "Reclamar este negocio".
+4. Si un dato sale **No encontrado** y existe en la ficha, el selector cambió: el diagnóstico (`data/diagnostics/…/diagnostico.json` y el HTML guardado) indica cuál ajustar en `src/scraper/scripts/mapsScripts.ts`.
 
 ---
 
@@ -173,7 +211,7 @@ Todas las rutas requieren sesión salvo las de `/api/auth` (login, estado, alta 
 | GET | `/api/export` | Copia de seguridad JSON (admin) |
 
 ```bash
-npm test           # 52 tests: unitarios, presupuesto, CRM, migraciones, autenticación y roles, API, mensajes, diagnóstico y e2e con Chromium
+npm test           # 59 tests: unitarios, presupuesto, CRM, migraciones, autenticación y roles, API, mensajes, diagnóstico, confiabilidad (fichas trampa) y e2e con Chromium
 npm run typecheck
 ```
 

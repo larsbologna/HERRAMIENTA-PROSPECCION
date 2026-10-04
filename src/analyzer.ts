@@ -68,6 +68,9 @@ async function run(browser: Browser, url: string, report: (p: Progress) => void,
       report({ percent: mapsPercent, message });
     },
   });
+  if (profile.dataQuality?.blocked) {
+    throw new Error('Google pidió una verificación (anti-robots) y no se pudo leer la ficha. Esperá unos minutos y volvé a intentar.');
+  }
   if (!profile.name) {
     throw new Error('No se pudo leer la ficha. Comprobá que el enlace sea de un negocio (no de una búsqueda o una zona).');
   }

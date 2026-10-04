@@ -34,7 +34,7 @@ function summaryCard(p) {
       </div>
     </div>
     <div class="facts">
-      ${fact('Calificación', p.rating != null ? `${String(p.rating).replace('.', ',')} ★ · ${number(p.reviewCount ?? 0)} reseñas` : '')}
+      ${fact('Calificación', p.rating != null ? `${String(p.rating).replace('.', ',')} ★${p.reviewCount != null ? ` · ${number(p.reviewCount)} reseñas` : ''}` : p.reviewCount === 0 ? 'Sin reseñas' : '')}
       ${fact('Respuesta a reseñas', metrics.ownerResponseRate != null ? `${Math.round(metrics.ownerResponseRate * 100)}% de las recientes` : '')}
       ${fact('Teléfono', p.phone)}
       ${fact('Dirección', p.address)}
@@ -45,6 +45,44 @@ function summaryCard(p) {
     </div>
   </section>`;
 }
+
+const DQ_STATUS = { encontrado: 'Encontrado', cero: 'Valor real 0', no_encontrado: 'No encontrado', error: 'Error de extracción' };
+const verifiedPoint = (d) => (d.status === 'encontrado' || d.status === 'cero') && d.confidence !== 'baja';
+
+/** Confiabilidad del dato: valor, estado, confianza, fuente y método de cada dato leído de Maps. */
+function reliabilityCard(p) {
+  const prof = p.analysis?.profile ?? {};
+  const dq = prof.dataQuality;
+  if (!dq) {
+    return `<section class="card" id="datos"><div class="card-head"><h2>Confiabilidad del dato</h2></div>
+      <p class="muted">Este análisis es anterior al control de confiabilidad. Reanalizá el negocio para ver de dónde sale cada dato.</p></section>`;
+  }
+  const rows = Object.values(dq.fields);
+  const ok = rows.filter(verifiedPoint).length;
+  const unverified = p.analysis?.audit?.unverified ?? [];
+  const labelOf = (f) => dq.fields[f]?.label ?? f;
+  return `<section class="card" id="datos">
+    <div class="card-head"><h2>Confiabilidad del dato</h2><span class="sub">${ok} de ${rows.length} verificados</span></div>
+    ${dq.blocked ? '<div class="alert warn"><div><b>Google bloqueó la lectura</b><div class="muted">Los datos de este análisis no son confiables.</div></div></div>' : ''}
+    <p class="muted dq-intro">Solo los datos <b>verificados</b> (encontrados o con valor real 0, con confianza alta o media) se usan para afirmar problemas y armar argumentos.</p>
+    <div class="table-wrap"><table class="table dq">
+      <thead><tr><th>Dato</th><th>Valor obtenido</th><th>Estado</th><th>Confianza</th><th>Fuente y método</th></tr></thead>
+      <tbody>${rows.map((d) => `
+        <tr class="${verifiedPoint(d) ? '' : 'dq-off'}">
+          <td><b>${esc(d.label)}</b></td>
+          <td class="dq-val">${esc(d.value)}</td>
+          <td><span class="dq-st dq-${d.status}">${esc(DQ_STATUS[d.status] ?? d.status)}</span></td>
+          <td><span class="dq-conf dq-${d.confidence}">${esc(d.confidence)}</span></td>
+          <td><div>${esc(d.source)}</div><div class="faint">${esc(d.method)}</div>${d.note ? `<div class="faint">${esc(d.note)}</div>` : ''}</td>
+        </tr>`).join('')}</tbody></table></div>
+    ${unverified.length ? `<div class="dq-unverified"><div class="label">No se afirman (dato sin verificar)</div>
+      <ul>${unverified.map((u) => `<li>${esc(u.title)} <span class="faint">· falta verificar: ${esc(u.fields.map(labelOf).join(', '))}</span></li>`).join('')}</ul></div>` : ''}
+  </section>`;
+}
+
+const basisLine = (a) => a.basis?.length
+  ? `<div class="basis">${icon('check', 'width="13" height="13"')}Dato verificado: ${a.basis.map((b) => `<b>${esc(b.label)}</b> ${esc(b.value)} <span class="faint">(confianza ${esc(b.confidence)} · ${esc(b.source)})</span>`).join(' · ')}</div>`
+  : '';
 
 function problemsCard(p) {
   return `<section class="card" id="problemas">
@@ -57,6 +95,7 @@ function problemsCard(p) {
           <div><div class="label">Servicio recomendado</div><div class="svc">${esc(a.service)}</div></div>
           <div class="benefit"><div class="label">Beneficio para el cliente</div><p>${esc(a.benefit)}</p></div>
         </div>
+        ${basisLine(a)}
       </article>`).join('') : '<p class="muted">No se detectaron problemas relevantes.</p>'}
     </div></section>`;
 }
@@ -206,7 +245,7 @@ export async function render(main, { id }, ctx) {
             <a class="chip" href="${esc(p.mapsUrl)}" target="_blank" rel="noopener">${icon('map')}${esc(p.address ?? 'Ver en Google Maps')}</a>
             ${p.phone ? `<span class="chip">${icon('phone')}${esc(p.phone)}</span>` : ''}
             ${p.website ? `<a class="chip" href="${esc(p.website)}" target="_blank" rel="noopener">${icon('globe')}${esc(p.website.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '').slice(0, 40))}</a>` : ''}
-            ${p.rating != null ? `<span class="chip">${icon('star')}${String(p.rating).replace('.', ',')} · ${number(p.reviewCount ?? 0)} reseñas</span>` : ''}
+            ${p.rating != null ? `<span class="chip">${icon('star')}${String(p.rating).replace('.', ',')}${p.reviewCount != null ? ` · ${number(p.reviewCount)} reseñas` : ''}</span>` : ''}
           </div>
         </div>
         <div class="page-actions" style="align-items:flex-start">
@@ -223,8 +262,8 @@ export async function render(main, { id }, ctx) {
       </div>
       <div class="profile">
         <div>
-          <nav class="subnav"><a href="#resumen">Resumen</a><a href="#problemas">Problemas (${p.problems.length})</a><a href="#servicios">Servicios</a><a href="#presupuesto">Presupuesto</a></nav>
-          <div class="stack">${summaryCard(p)}${problemsCard(p)}${servicesCard(p)}${budgetCard(p)}</div>
+          <nav class="subnav"><a href="#resumen">Resumen</a><a href="#problemas">Problemas (${p.problems.length})</a><a href="#servicios">Servicios</a><a href="#presupuesto">Presupuesto</a><a href="#datos">Confiabilidad</a></nav>
+          <div class="stack">${summaryCard(p)}${problemsCard(p)}${servicesCard(p)}${budgetCard(p)}${reliabilityCard(p)}</div>
         </div>
         <div class="stack">${followupsCard(p)}${valueCard(p)}${messagesCard(p)}${notesCard(p)}${historyCard(p, ctx.meta.activityTypes)}</div>
       </div>`;

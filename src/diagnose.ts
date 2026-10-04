@@ -22,6 +22,7 @@ const { launchBrowser } = await import('./scraper/browser.js');
 const { isMapsUrl } = await import('./scraper/mapsScraper.js');
 const { runMapsDiagnostic } = await import('./diagnostics/mapsDiagnostic.js');
 const { formatDiagnostic } = await import('./diagnostics/format.js');
+const { formatDataQualityText } = await import('./domain/reliability.js');
 
 if (!isMapsUrl(url)) {
   console.error('La URL no parece un enlace de Google Maps.');
@@ -37,6 +38,8 @@ const browser = await launchBrowser();
 try {
   const report = await runMapsDiagnostic(browser, url, { outDir, onProgress: (m) => console.log(`  … ${m}`) });
   console.log(formatDiagnostic(report));
+  // Lo que la herramienta va a usar (o no) para argumentar, dato por dato.
+  if (report.perfil?.dataQuality) console.log(`\n${formatDataQualityText(report.perfil.dataQuality)}`);
   console.log(`\nArchivo generado: ${path.join(outDir, 'diagnostico.json')}`);
   process.exitCode = report.error ? 1 : 0;
 } finally {

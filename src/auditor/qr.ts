@@ -1,4 +1,5 @@
 import type { QrRecommendation } from '../domain/types.js';
+import { isVerified } from '../domain/reliability.js';
 import type { AuditContext } from './context.js';
 
 /**
@@ -8,10 +9,13 @@ import type { AuditContext } from './context.js';
 export function evaluateQr({ profile, vertical, metrics }: AuditContext): QrRecommendation {
   const reasons: string[] = [];
   let points = 0;
+  // Solo datos verificados: un contador de reseñas que no se pudo leer no es "0 reseñas".
+  const countKnown = isVerified(profile.dataQuality, 'reviewCount') && (profile.reviewCount !== undefined || profile.dataQuality?.fields.reviewCount.status === 'cero');
   const count = profile.reviewCount ?? 0;
-  const rating = profile.rating;
+  const rating = isVerified(profile.dataQuality, 'rating') ? profile.rating : undefined;
 
-  if (count < 50) { points += 3; reasons.push(`Solo ${count} reseñas: el QR acelera la captación en el mostrador.`); }
+  if (!countKnown) { /* sin dato verificado: no se argumenta por volumen */ }
+  else if (count < 50) { points += 3; reasons.push(`Solo ${count} reseñas: el QR acelera la captación en el mostrador.`); }
   else if (count < 200) { points += 2; reasons.push(`${count} reseñas: hay margen para superar a la competencia.`); }
 
   if (rating !== undefined && rating < 4.5) {

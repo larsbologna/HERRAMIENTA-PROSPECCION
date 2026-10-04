@@ -1,3 +1,5 @@
+import type { DataBasis, DataField, DataQuality } from './reliability.js';
+
 /**
  * Modelo de dominio compartido por scraper, auditor, propuesta, informe y agentes.
  * Todo lo que se guarda en el JSON del informe está tipado aquí: es el "contrato"
@@ -74,6 +76,8 @@ export interface BusinessProfile {
   scrapedAt: string;
   /** Avisos del scraper (campos no encontrados, bloqueos, etc.). */
   warnings: string[];
+  /** Confiabilidad de cada dato: valor, estado, confianza, fuente y método (ausente en análisis antiguos). */
+  dataQuality?: DataQuality;
 }
 
 /** Resultado de analizar el sitio web del negocio. */
@@ -186,6 +190,11 @@ export interface AuditResult {
     daysSinceLastReview?: number;
     daysSinceLastPost?: number;
   };
+  /**
+   * Problemas que las reglas habrían marcado pero que NO se afirman porque el dato
+   * en el que se basan no está verificado (no encontrado, error o confianza baja).
+   */
+  unverified?: Array<{ findingId: string; title: string; fields: DataField[] }>;
 }
 
 export type ServiceId =
@@ -232,6 +241,8 @@ export interface SalesArgument {
   benefit: string;
   /** Dato observado que respalda el argumento (opcional). */
   evidence?: string;
+  /** Datos verificados en los que se apoya (valor, confianza, fuente y método). */
+  basis?: DataBasis[];
 }
 
 export interface Proposal {
