@@ -1,12 +1,22 @@
 @echo off
 chcp 65001 >nul
-title Herramienta de prospeccion
+title Prospeccion - CRM
 cd /d "%~dp0"
 
 where node >nul 2>nul
 if errorlevel 1 (
   echo.
   echo  Falta Node.js. Descargalo e instalalo desde https://nodejs.org ^(version LTS^) y volve a abrir este archivo.
+  echo.
+  pause
+  exit /b 1
+)
+
+node -e "const [a,b]=process.versions.node.split('.').map(Number);process.exit(a>22||(a===22&&b>=13)?0:1)"
+if errorlevel 1 (
+  echo.
+  echo  Tu version de Node.js es muy vieja. Esta herramienta necesita Node.js 22.13 o superior.
+  echo  Descarga la version LTS desde https://nodejs.org, instalala y volve a abrir este archivo.
   echo.
   pause
   exit /b 1
