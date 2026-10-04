@@ -88,11 +88,11 @@ export function createApp(deps: AppDeps): http.Server {
     res.setHeader('Set-Cookie', serializeCookie(COOKIE, '', { maxAge: 0, secure: secureCookie(req) }));
   const publicUser = (u: User) => ({ id: u.id, name: u.name, username: u.username, email: u.email, role: u.role });
 
-  const globalSettings = (): Settings => repo.settings({ sellerName: '', sellerBusiness: config.seller.business, sellerCity: '' });
+  const globalSettings = (): Settings => repo.settings({ sellerName: '', sellerBusiness: config.seller.business, sellerCity: '', sellerIntro: '', sellerLink: '' });
   /** Los mensajes de WhatsApp firman con el nombre del usuario conectado. */
   const sellerFor = (u: User) => {
     const s = globalSettings();
-    return { sellerName: u.name || s.sellerName, sellerCity: s.sellerCity, sellerBusiness: s.sellerBusiness };
+    return { sellerName: u.name || s.sellerName, sellerCity: s.sellerCity, sellerBusiness: s.sellerBusiness, sellerIntro: s.sellerIntro, sellerLink: s.sellerLink };
   };
   /** Un vendedor solo accede a sus prospectos; a los ajenos responde "no encontrado". */
   const ensureAccess = (u: User, prospectId: string) => {
@@ -374,10 +374,17 @@ export function createApp(deps: AppDeps): http.Server {
         services: Object.values(SERVICE_CATALOG).map((s) => ({ id: s.id, name: s.name })),
       };
     }, { roles: ADMIN })
-    .on('PUT', '/api/settings', async ({ req }) => {
+    .on('PUT', '/api/settings', async ({ req, user }) => {
       const body = await readJson<Partial<Settings>>(req);
       repo.saveSettings(body);
+      repo.logSystem('configuracion', user.id, 'Datos del negocio actualizados (mensajes de WhatsApp)');
       return { settings: globalSettings() };
+    }, { roles: ADMIN })
+    // Edición de precios desde la app: guarda precios.json y recalcula todos los prospectos.
+    .on('PUT', '/api/settings/prices', async ({ req, user }) => {
+      const body = await readJson<{ prices?: unknown }>(req);
+      const { prices, recalculated } = repo.updatePrices(body.prices, user.id);
+      return { prices, recalculated, priceError: null };
     }, { roles: ADMIN })
     .on('GET', '/api/export', ({ res }) => {
       const date = new Date().toISOString().slice(0, 10);

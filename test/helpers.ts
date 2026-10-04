@@ -30,7 +30,9 @@ export async function startApp(security: AppDeps['security'] = {}) {
   mkdirSync(path.join(webDir, 'assets'));
   writeFileSync(path.join(webDir, 'assets', 'app.js'), 'console.log(1)');
   const db = openDatabase(':memory:');
-  const repo = new CrmRepository(db, () => loadPriceList());
+  // Precios en memoria: los tests nunca escriben el precios.json real.
+  let prices = loadPriceList();
+  const repo = new CrmRepository(db, () => prices, (p) => { prices = p; });
   const users = new UserRepository(db);
   const server = createApp({ repo, users, analyze: fakeAnalyze, webDir, log: () => {}, security }).listen(0, '127.0.0.1');
   await new Promise((r) => server.once('listening', r));

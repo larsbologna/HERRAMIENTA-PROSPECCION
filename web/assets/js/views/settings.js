@@ -17,7 +17,7 @@ export async function render(main, params, ctx) {
     for (const b of $$('[data-tab]', main)) b.classList.toggle('on', b.dataset.tab === name);
     const box = $('#tab', main);
     box.innerHTML = '<div class="card"><div class="skeleton" style="width:40%"></div></div>';
-    if (name === 'general') await general(box);
+    if (name === 'general') await general(box, ctx);
     else if (name === 'usuarios') await usersTab(box, ctx);
     else await activityTab(box, ctx);
   };
@@ -26,19 +26,76 @@ export async function render(main, params, ctx) {
 }
 
 // ---------------------------------------------------------------- General
-async function general(box) {
+const DEFAULT_INTRO = (business) => `${business ? `Desde ${business} trabajo` : 'Trabajo'} con negocios de la zona en todo lo que es Google Maps, reseñas y atención por WhatsApp.`;
+const linkUrl = (l) => (!l ? '' : /^@[\w.]+$/.test(l) ? `https://instagram.com/${l.slice(1)}` : /^https?:\/\//i.test(l) ? l : `https://${l}`);
+
+/** Vista previa de cómo arranca el primer mensaje de WhatsApp con estos datos. */
+function introPreview(d, sellerName) {
+  const me = sellerName || '[tu nombre]';
+  const intro = (d.sellerIntro || '').trim().replace(/([^.!?])$/, '$1.') || DEFAULT_INTRO((d.sellerBusiness || '').trim());
+  const city = (d.sellerCity || '').trim();
+  const link = linkUrl((d.sellerLink || '').trim());
+  return `Hola, ¿cómo va? ¿Hablo con [negocio]?\n\nSoy ${me}${city ? `, de ${city}` : ''}. ${intro}\n\n…${link ? ` Podés ver lo que hago en ${link}` : ''}`;
+}
+
+function infoForm(s) {
+  return `
+    <h2>Datos del negocio</h2>
+    <p>Se usan en los mensajes de WhatsApp de todos los prospectos. El cambio se aplica al instante.</p>
+    <form class="stack" id="iform" style="gap:12px">
+      <label class="field">Nombre de tu negocio<input class="input" name="sellerBusiness" maxlength="120" value="${esc(s.sellerBusiness)}" placeholder="Ej.: Gestor de Presencia Online"></label>
+      <label class="field">Ciudad o zona<input class="input" name="sellerCity" maxlength="120" value="${esc(s.sellerCity)}" placeholder="Ej.: Rosario"></label>
+      <label class="field">Presentación (opcional · si la dejás vacía se usa la de abajo)
+        <textarea class="textarea" name="sellerIntro" maxlength="300" rows="2" placeholder="${esc(DEFAULT_INTRO(s.sellerBusiness))}">${esc(s.sellerIntro)}</textarea></label>
+      <label class="field">Web o Instagram para mostrar trabajos (opcional)<input class="input" name="sellerLink" maxlength="200" value="${esc(s.sellerLink)}" placeholder="tunegocio.com o @tunegocio"></label>
+      <div><div class="label">Vista previa del mensaje</div><pre class="preview" id="ipreview"></pre></div>
+      <div class="error-text" id="ierr"></div>
+      <div class="btn-row" style="justify-content:flex-end"><button type="button" class="btn" data-close>Cancelar</button><button class="btn btn-primary">${icon('check')}Guardar</button></div>
+    </form>`;
+}
+
+function pricesForm(prices, services) {
+  const months = prices?.mesesContrato ?? 12;
+  const pack = prices?.descuentoPaquete ?? { minimoServicios: 3, porcentaje: 0 };
+  return `
+    <h2>Editar precios</h2>
+    <p>Al guardar se recalculan el presupuesto y el valor potencial de <b>todos</b> los prospectos.</p>
+    <form class="stack" id="pform" style="gap:14px">
+      <div class="grid grid-3" style="gap:10px">
+        <label class="field">Moneda<input class="input" name="moneda" maxlength="3" value="${esc(prices?.moneda ?? 'ARS')}" required></label>
+        <label class="field">Meses de contrato<input class="input num" name="mesesContrato" type="number" min="0" max="60" value="${months}" required></label>
+        <label class="field">Descuento por paquete (%)<input class="input num" name="porcentaje" type="number" min="0" max="90" value="${pack.porcentaje}"></label>
+      </div>
+      <label class="field">Se aplica desde cuántos servicios<input class="input num" name="minimoServicios" type="number" min="1" max="20" value="${pack.minimoServicios}" style="max-width:160px"></label>
+      <div class="table-wrap" style="border:0;background:transparent"><table class="table price-edit">
+        <thead><tr><th>Servicio</th><th class="right">Pago inicial</th><th class="right">Abono mensual</th><th class="right">Total contrato</th></tr></thead>
+        <tbody>${services.map((sv) => {
+          const p = prices?.servicios?.[sv.id];
+          return `<tr data-svc="${esc(sv.id)}" style="cursor:default"><td class="name">${esc(sv.name)}</td>
+            <td><input class="input num right" data-k="pagoInicial" type="number" min="0" step="1000" value="${p ? p.pagoInicial : ''}" placeholder="Sin precio" aria-label="Pago inicial de ${esc(sv.name)}"></td>
+            <td><input class="input num right" data-k="mensual" type="number" min="0" step="1000" value="${p ? p.mensual : ''}" placeholder="Sin precio" aria-label="Abono mensual de ${esc(sv.name)}"></td>
+            <td class="right num" data-total></td></tr>`;
+        }).join('')}</tbody></table></div>
+      <p class="faint" style="font-size:12px;margin:0">Dejá un servicio vacío para no incluirlo en los presupuestos.</p>
+      <div class="error-text" id="perr"></div>
+      <div class="btn-row" style="justify-content:flex-end"><button type="button" class="btn" data-close>Cancelar</button><button class="btn btn-primary">${icon('check')}Guardar precios</button></div>
+    </form>`;
+}
+
+async function general(box, ctx) {
   const s = await api.settings();
   const prices = s.prices;
+  const st = s.settings;
+  const months = prices?.mesesContrato ?? 12;
   box.innerHTML = `
     <div class="grid grid-2">
       <section class="card">
-        <div class="card-head"><h2>Datos del negocio</h2><span class="sub">Se usan en los mensajes de WhatsApp</span></div>
-        <form class="stack" id="form" style="gap:14px">
-          <label class="field">Ciudad o zona<input class="input" name="sellerCity" maxlength="120" value="${esc(s.settings.sellerCity)}" placeholder="Ej.: Rosario"></label>
-          <label class="field">Nombre de tu negocio<input class="input" name="sellerBusiness" maxlength="120" value="${esc(s.settings.sellerBusiness)}"></label>
-          <p class="faint" style="font-size:12px;margin:0">Cada mensaje se firma con el nombre del usuario que lo envía (se edita en Usuarios).</p>
-          <div><button class="btn btn-primary" type="submit">${icon('check')}Guardar</button></div>
-        </form>
+        <div class="card-head"><h2>Datos del negocio</h2><button class="btn btn-sm" id="edit-info">${icon('edit')}Editar datos</button></div>
+        <div class="kv"><span>Negocio</span><b>${esc(st.sellerBusiness || '—')}</b></div>
+        <div class="kv"><span>Ciudad o zona</span><b>${esc(st.sellerCity || '—')}</b></div>
+        <div class="kv"><span>Presentación</span><span>${esc(st.sellerIntro || 'Por defecto')}</span></div>
+        <div class="kv"><span>Web / Instagram</span><span>${esc(st.sellerLink || '—')}</span></div>
+        <p class="faint" style="font-size:12px;margin:10px 0 0">Se usan en los mensajes de WhatsApp. Cada mensaje se firma con el nombre del usuario que lo envía (se edita en Usuarios).</p>
       </section>
       <section class="card">
         <div class="card-head"><h2>Datos y copia de seguridad</h2></div>
@@ -48,29 +105,84 @@ async function general(box) {
         <a class="btn" href="/api/export" download>${icon('download')}Descargar copia (JSON)</a>
       </section>
       <section class="card span-2">
-        <div class="card-head"><h2>Precios</h2><span class="sub">Moneda: ${esc(prices?.moneda ?? '—')} · ${prices?.mesesContrato ?? 12} meses de contrato${prices?.descuentoPaquete ? ` · ${prices.descuentoPaquete.porcentaje}% de descuento desde ${prices.descuentoPaquete.minimoServicios} servicios` : ''}</span></div>
-        ${s.priceError ? `<div class="banner">precios.json tiene un error y se siguen usando los últimos precios válidos: ${esc(s.priceError)}</div>` : ''}
+        <div class="card-head"><h2>Precios</h2>
+          <div class="row" style="gap:10px;align-items:center"><span class="sub">Moneda: ${esc(prices?.moneda ?? '—')} · ${months} meses de contrato${prices?.descuentoPaquete ? ` · ${prices.descuentoPaquete.porcentaje}% de descuento desde ${prices.descuentoPaquete.minimoServicios} servicios` : ''}</span>
+          <button class="btn btn-sm btn-primary" id="edit-prices">${icon('edit')}Editar precios</button></div></div>
+        ${s.priceError ? `<div class="banner">precios.json tiene un error y se siguen usando los últimos precios válidos: ${esc(s.priceError)}. Podés corregirlo con "Editar precios".</div>` : ''}
         ${prices ? `<div class="table-wrap" style="border:0;background:transparent"><table class="table" style="min-width:520px">
-          <thead><tr><th>Servicio</th><th class="right">Pago inicial</th><th class="right">Mensual</th><th class="right">Total ${prices.mesesContrato ?? 12} meses</th></tr></thead>
+          <thead><tr><th>Servicio</th><th class="right">Pago inicial</th><th class="right">Mensual</th><th class="right">Total ${months} meses</th></tr></thead>
           <tbody>${s.services.map((sv) => {
             const p = prices.servicios?.[sv.id];
-            const months = prices.mesesContrato ?? 12;
             return `<tr style="cursor:default"><td class="name">${esc(sv.name)}</td>
               <td class="right num">${p ? money(p.pagoInicial) : '<span class="faint">Sin precio</span>'}</td>
               <td class="right num">${p ? money(p.mensual) : '—'}</td>
               <td class="right num">${p ? money(p.pagoInicial + p.mensual * months) : '—'}</td></tr>`;
           }).join('')}</tbody></table></div>` : ''}
-        <p class="muted" style="font-size:13px;margin-bottom:0">Para cambiar precios, editá <code>precios.json</code>. Al guardarlo, el valor potencial y los presupuestos de todos los prospectos se recalculan solos.</p>
+        <p class="muted" style="font-size:13px;margin-bottom:0">Al guardar, el presupuesto y el valor potencial de todos los prospectos se recalculan solos.</p>
       </section>
     </div>`;
-  $('#form', box).onsubmit = async (e) => {
-    e.preventDefault();
-    try {
-      await api.saveSettings(Object.fromEntries(new FormData(e.target)));
-      toast('Datos guardados');
-    } catch (err) {
-      toast(err.message, 'err');
-    }
+
+  $('#edit-info', box).onclick = () => {
+    const m = modal(infoForm(st));
+    const form = $('#iform', m.root);
+    const refresh = () => { $('#ipreview', m.root).textContent = introPreview(Object.fromEntries(new FormData(form)), ctx.user?.name); };
+    form.addEventListener('input', refresh);
+    refresh();
+    $('[data-close]', m.root).onclick = () => m.close();
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      try {
+        await api.saveSettings(Object.fromEntries(new FormData(form)));
+        m.close();
+        toast('Datos guardados · los mensajes de WhatsApp ya usan la nueva información');
+        general(box, ctx);
+      } catch (err) {
+        $('#ierr', m.root).textContent = err.message;
+      }
+    };
+  };
+
+  $('#edit-prices', box).onclick = () => {
+    const m = modal(pricesForm(prices, s.services));
+    m.root.querySelector('.modal').classList.add('modal-wide');
+    const form = $('#pform', m.root);
+    const totals = () => {
+      const months = Number(form.mesesContrato.value) || 0;
+      for (const tr of $$('[data-svc]', form)) {
+        const [a, b] = ['pagoInicial', 'mensual'].map((k) => $(`[data-k="${k}"]`, tr).value);
+        $('[data-total]', tr).textContent = a === '' && b === '' ? '—' : money((Number(a) || 0) + (Number(b) || 0) * months);
+      }
+    };
+    form.addEventListener('input', totals);
+    totals();
+    $('[data-close]', m.root).onclick = () => m.close();
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const servicios = {};
+      for (const tr of $$('[data-svc]', form)) {
+        const a = $('[data-k="pagoInicial"]', tr).value;
+        const b = $('[data-k="mensual"]', tr).value;
+        if (a === '' && b === '') continue;
+        servicios[tr.dataset.svc] = { pagoInicial: Number(a || 0), mensual: Number(b || 0) };
+      }
+      const body = {
+        moneda: form.moneda.value,
+        mesesContrato: Number(form.mesesContrato.value),
+        servicios,
+        descuentoPaquete: { porcentaje: Number(form.porcentaje.value || 0), minimoServicios: Number(form.minimoServicios.value || 1) },
+      };
+      const btn = $('button.btn-primary', form);
+      btn.disabled = true;
+      try {
+        const r = await api.savePrices(body);
+        m.close();
+        toast(`Precios guardados${r.recalculated ? ` · ${r.recalculated} prospecto${r.recalculated === 1 ? '' : 's'} recalculado${r.recalculated === 1 ? '' : 's'}` : ''}`);
+        general(box, ctx);
+      } catch (err) {
+        $('#perr', m.root).textContent = err.message;
+        btn.disabled = false;
+      }
+    };
   };
 }
 
@@ -162,7 +274,7 @@ async function usersTab(box, ctx) {
 const ACTION_FILTERS = [
   ['', 'Todas las acciones'], ['login', 'Inicios de sesión'], ['logout', 'Cierres de sesión'], ['estado', 'Cambios de estado'],
   ['whatsapp', 'WhatsApp'], ['nota', 'Notas'], ['notas', 'Notas internas'], ['creado', 'Análisis (nuevos)'], ['reanalisis', 'Reanálisis'],
-  ['asignacion', 'Asignaciones'], ['seguimiento', 'Seguimientos'], ['usuario', 'Gestión de usuarios'],
+  ['asignacion', 'Asignaciones'], ['seguimiento', 'Seguimientos'], ['usuario', 'Gestión de usuarios'], ['configuracion', 'Cambios de configuración'],
 ];
 const filters = { userId: '', type: '' };
 

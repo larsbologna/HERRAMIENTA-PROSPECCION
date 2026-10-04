@@ -46,6 +46,7 @@ export const ACTIVITY_TYPES = {
   login: 'Inició sesión',
   logout: 'Cerró sesión',
   usuario: 'Gestión de usuarios',
+  configuracion: 'Cambio de configuración',
 } as const;
 
 export type ActivityType = keyof typeof ACTIVITY_TYPES;
@@ -162,4 +163,8 @@ export interface Settings {
   sellerName: string;
   sellerBusiness: string;
   sellerCity: string;
+  /** Frase de presentación para los mensajes (vacía = texto por defecto). */
+  sellerIntro: string;
+  /** Web, Instagram o @usuario que se suma al primer mensaje (opcional). */
+  sellerLink: string;
 }

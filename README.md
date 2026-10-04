@@ -52,7 +52,7 @@ Para cerrarla, cerrá la ventana negra. Tus datos quedan guardados.
 | **Auditorías** | Nuevo análisis y registro de todos los análisis (incluidos los reanálisis). |
 | **Perfil del prospecto** | Responsable, próximo contacto, score por área, datos del negocio, problemas (impacto, motivo, servicio, beneficio), servicios recomendados, presupuesto, potencial económico, mensajes de WhatsApp, notas internas e historial. |
 | **Métricas** | Conversión, ticket promedio, servicios más recomendados, rubros más analizados, scores promedio y distribución. |
-| **Configuración** | Datos del negocio, tabla de precios, copia de seguridad, usuarios y registro de actividad (solo administrador). |
+| **Configuración** | Botones **Editar datos** (negocio, ciudad, presentación y web/Instagram que usan los mensajes de WhatsApp, con vista previa) y **Editar precios** (se recalculan todos los prospectos al instante). También copia de seguridad, usuarios y registro de actividad (solo administrador). |
 
 ### Flujo diario sugerido
 
@@ -67,7 +67,9 @@ Si analizás de nuevo un negocio (mismo nombre y dirección), se **actualiza** e
 
 ## Precios y presupuestos (pesos argentinos)
 
-Se configuran en **`precios.json`** (editalo con cualquier editor de texto):
+Se editan desde **Configuración → Precios → Editar precios** (solo administrador): pago inicial y abono de cada servicio, meses de contrato, descuento por paquete y moneda. Al guardar, el presupuesto y el valor potencial de **todos** los prospectos se recalculan en el momento, y queda registrado en el registro de actividad.
+
+Los precios se guardan en **`precios.json`**, que también se puede editar a mano:
 
 ```json
 {

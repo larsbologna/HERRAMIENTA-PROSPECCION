@@ -24,6 +24,7 @@ export const api = {
   addActivity: (id, type, content) => request('POST', `/api/prospects/${encodeURIComponent(id)}/activities`, { type, content }),
   settings: () => request('GET', '/api/settings'),
   saveSettings: (body) => request('PUT', '/api/settings', body),
+  savePrices: (prices) => request('PUT', '/api/settings/prices', { prices }),
 
   // Sesión y usuarios
   authState: () => request('GET', '/api/auth/estado'),

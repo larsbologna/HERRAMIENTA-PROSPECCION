@@ -88,6 +88,49 @@ test('configuración, meta y exportación', async () => {
   assert.match((await admin.get(`/api/prospects/${any.id}`)).body.messages.primerContacto, /Soy Iván, de Rosario/);
 });
 
+test('editar precios y datos del negocio desde Configuración: se aplica al instante', async () => {
+  await admin.analyze('https://maps.app.goo.gl/Precios Test');
+  const before = (await admin.get('/api/prospects')).body.items;
+  const target = before.find((p: any) => p.potentialValue > 0);
+  assert.ok(target, 'hace falta un prospecto con valor');
+  const s = (await admin.get('/api/settings')).body;
+
+  // Duplicar todos los precios.
+  const doubled = Object.fromEntries(Object.entries(s.prices.servicios).map(([id, v]: [string, any]) => [id, { pagoInicial: v.pagoInicial * 2, mensual: v.mensual * 2 }]));
+  const saved = await admin.put('/api/settings/prices', { prices: { ...s.prices, servicios: doubled } });
+  assert.equal(saved.status, 200, JSON.stringify(saved.body));
+  assert.ok(saved.body.recalculated >= 1);
+  const after = (await admin.get(`/api/prospects/${target.id}`)).body;
+  assert.equal(after.potentialValue, target.potentialValue * 2, 'el valor potencial se recalcula al instante');
+  assert.equal((await admin.get('/api/settings')).body.prices.servicios['website'].pagoInicial, s.prices.servicios['website'].pagoInicial * 2);
+
+  // Validación y permisos.
+  const bad = await admin.put('/api/settings/prices', { prices: { ...s.prices, servicios: { website: { pagoInicial: -5, mensual: 1 } } } });
+  assert.equal(bad.status, 400);
+  assert.match(bad.body.error, /Pago inicial/);
+  assert.equal((await admin.put('/api/settings/prices', { prices: { ...s.prices, moneda: 'pesos' } })).status, 400);
+  const seller = await loggedClient(app.base, app.users, 'vera', 'vendedor', 'Vera');
+  assert.equal((await seller.put('/api/settings/prices', { prices: s.prices })).status, 403);
+  assert.equal((await seller.put('/api/settings', { sellerBusiness: 'X' })).status, 403);
+
+  // Datos del negocio → mensajes de WhatsApp.
+  const info = await admin.put('/api/settings', { sellerBusiness: 'Presencia Total', sellerCity: 'Córdoba', sellerIntro: '', sellerLink: '@presenciatotal' });
+  assert.equal(info.status, 200, JSON.stringify(info.body));
+  let msg = (await admin.get(`/api/prospects/${target.id}`)).body.messages;
+  assert.match(msg.primerContacto, /Soy Iván, de Córdoba\. Desde Presencia Total trabajo con negocios/);
+  assert.match(msg.primerContacto, /Podés ver lo que hago en https:\/\/instagram\.com\/presenciatotal/);
+  assert.match(msg.primerContactoCorto, /Soy Iván, de Presencia Total\./);
+  await admin.put('/api/settings', { sellerIntro: 'Ayudo a comercios a conseguir más clientes desde Google' });
+  msg = (await admin.get(`/api/prospects/${target.id}`)).body.messages;
+  assert.match(msg.primerContacto, /Soy Iván, de Córdoba\. Ayudo a comercios a conseguir más clientes desde Google\./);
+  assert.equal((await admin.put('/api/settings', { sellerLink: 'no es un enlace' })).status, 400);
+
+  // Queda registrado en la actividad.
+  const log = (await admin.get('/api/activity?type=configuracion')).body.items;
+  assert.ok(log.some((a: any) => /Precios actualizados/.test(a.content)));
+  assert.ok(log.some((a: any) => /Datos del negocio/.test(a.content)));
+});
+
 test('seguridad, cabeceras y archivos estáticos', async () => {
   const anon = new Client(app.base);
   const page = await anon.req('GET', '/');

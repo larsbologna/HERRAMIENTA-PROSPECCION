@@ -476,3 +476,12 @@ code { font-size: 12px; background: rgba(248, 248, 248, .07); padding: 2px 6px; 
 .dq-unverified ul { margin: 6px 0 0; padding-left: 18px; font-size: 13px; }
 .basis { display: flex; gap: 6px; align-items: flex-start; flex-wrap: wrap; margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line); font-size: 12px; color: var(--text-2); }
 .basis svg { color: var(--green); margin-top: 2px; flex: none; }
+
+/* Edición de precios y datos del negocio */
+.modal.modal-wide { width: min(800px, 100%); max-height: calc(100vh - 40px); overflow-y: auto; }
+table.table.price-edit { min-width: 0; }
+.price-edit th, .price-edit td { padding-left: 10px; padding-right: 10px; }
+.price-edit td[data-total] { white-space: nowrap; }
+.price-edit td { padding-top: 6px; padding-bottom: 6px; }
+.price-edit .input { height: 36px; max-width: 130px; margin-left: auto; text-align: right; }
+.preview { margin: 6px 0 0; padding: 12px 14px; border-radius: var(--r); background: rgba(248, 248, 248, .03); border: 1px solid var(--line); font: inherit; font-size: 13px; white-space: pre-wrap; color: var(--text-2); }

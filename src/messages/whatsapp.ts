@@ -28,6 +28,18 @@ export interface Seller {
   sellerName: string;
   sellerBusiness?: string;
   sellerCity?: string;
+  /** Presentación propia (si está vacía se usa la del negocio). */
+  sellerIntro?: string;
+  /** Web, Instagram o @usuario para mostrar trabajos. */
+  sellerLink?: string;
+}
+
+/** "tunegocio.com" → "https://tunegocio.com"; "@usuario" → enlace de Instagram. */
+export function sellerLinkUrl(link: string | undefined): string | undefined {
+  const l = link?.trim();
+  if (!l) return undefined;
+  if (/^@[\w.]+$/.test(l)) return `https://instagram.com/${l.slice(1)}`;
+  return /^https?:\/\//i.test(l) ? l : `https://${l}`;
 }
 
 export interface ProspectMessages {
@@ -114,6 +126,8 @@ function capitalize(s: string): string {
 export function composeMessages(i: MessageInput, seller: Seller): ProspectMessages {
   const me = seller.sellerName?.trim() || '[tu nombre]';
   const city = seller.sellerCity?.trim();
+  const business = seller.sellerBusiness?.trim();
+  const link = sellerLinkUrl(seller.sellerLink);
   const hooks = hooksFor(i);
   const main = hooks[0] ?? `estuve mirando cómo aparece ${i.name} en Google y vi un par de cosas que les están haciendo perder consultas`;
   const second = hooks[1];
@@ -123,7 +137,9 @@ export function composeMessages(i: MessageInput, seller: Seller): ProspectMessag
 
   const saludo = pick(['Hola, ¿cómo va?', 'Hola, ¿qué tal?', 'Buenas, ¿cómo andan?'], i.seed, 's');
   const quien = pick([`¿Hablo con ${i.name}?`, `¿Este es el WhatsApp de ${i.name}?`], i.seed, 'q');
-  const presentacion = `Soy ${me}${city ? `, de ${city}` : ''}. Trabajo con negocios de la zona en todo lo que es Google Maps, reseñas y atención por WhatsApp.`;
+  const intro = seller.sellerIntro?.trim().replace(/([^.!?])$/, '$1.')
+    || `${business ? `Desde ${business} trabajo` : 'Trabajo'} con negocios de la zona en todo lo que es Google Maps, reseñas y atención por WhatsApp.`;
+  const presentacion = `Soy ${me}${city ? `, de ${city}` : ''}. ${intro}`;
   const cierre = pick(
     [
       '¿Te puedo mandar un audio de 2 minutos contándote lo que vi?',
@@ -138,12 +154,12 @@ export function composeMessages(i: MessageInput, seller: Seller): ProspectMessag
     `${saludo} ${quien}`,
     presentacion,
     `Te escribo porque ${main}.${second ? ` Además, ${second}.` : ''}`,
-    `${pick(['Se resuelve más fácil de lo que parece.', 'Tiene arreglo y no es complicado.'], i.seed, 'r')} Justamente me dedico a esto: puedo ${offer}.`,
+    `${pick(['Se resuelve más fácil de lo que parece.', 'Tiene arreglo y no es complicado.'], i.seed, 'r')} Justamente me dedico a esto: puedo ${offer}.${link ? ` Podés ver lo que hago en ${link}` : ''}`,
     cierre,
   ].join('\n\n');
 
   const primerContactoCorto = [
-    `${saludo} Soy ${me}, trabajo con negocios en Google Maps y WhatsApp.`,
+    `${saludo} Soy ${me}${business ? `, de ${business}` : ''}. Trabajo con negocios en Google Maps y WhatsApp.`,
     `${capitalize(main)}.`,
     pick(['¿Te cuento cómo lo resolvería?', '¿Te interesa que te muestre cómo se arregla?'], i.seed, 'k'),
   ].join('\n\n');
