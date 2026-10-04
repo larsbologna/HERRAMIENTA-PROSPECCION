@@ -7,30 +7,37 @@ import * as pipeline from './views/pipeline.js';
 import * as audits from './views/audits.js';
 import * as metrics from './views/metrics.js';
 import * as settings from './views/settings.js';
+import { renderLogin, renderSetup } from './views/auth.js';
 
+/** Secciones del menú. `roles` limita quién las ve (sin roles = todos). */
 const NAV = [
   { path: '/', label: 'Dashboard', icon: 'dashboard', view: dashboard },
-  { path: '/prospectos', label: 'Prospectos', icon: 'users', view: prospects },
+  { path: '/prospectos', label: 'Prospectos', vendedorLabel: 'Mis prospectos', icon: 'users', view: prospects },
   { path: '/pipeline', label: 'Pipeline', icon: 'kanban', view: pipeline },
-  { path: '/auditorias', label: 'Auditorías', icon: 'audit', view: audits },
-  { path: '/metricas', label: 'Métricas', icon: 'chart', view: metrics },
-  { path: '/configuracion', label: 'Configuración', icon: 'settings', view: settings },
+  { path: '/auditorias', label: 'Auditorías', icon: 'audit', view: audits, roles: ['admin'] },
+  { path: '/metricas', label: 'Métricas', icon: 'chart', view: metrics, roles: ['admin'] },
+  { path: '/configuracion', label: 'Configuración', icon: 'settings', view: settings, roles: ['admin'] },
 ];
 
-export const ctx = { meta: null, navigate, openAnalyze, refreshNav };
+export const ctx = { meta: null, user: null, isAdmin: false, navigate, openAnalyze, refreshNav };
 let cleanup = null;
 let renderToken = 0;
+
+const allowed = (item) => !item.roles || item.roles.includes(ctx.user?.role);
 
 function route(pathname) {
   const m = pathname.match(/^\/prospectos\/([^/]+)$/);
   if (m) return { view: prospect, params: { id: decodeURIComponent(m[1]) }, nav: '/prospectos' };
-  const item = NAV.find((n) => n.path === pathname) ?? NAV[0];
+  const item = NAV.find((n) => n.path === pathname);
+  // Rutas inexistentes o no permitidas para el rol → Dashboard
+  if (!item || !allowed(item)) return { view: dashboard, params: {}, nav: '/', redirect: pathname !== '/' };
   return { view: item.view, params: {}, nav: item.path };
 }
 
 async function render() {
   const token = ++renderToken;
   const r = route(location.pathname);
+  if (r.redirect) history.replaceState({}, '', '/');
   cleanup?.();
   cleanup = null;
   for (const a of document.querySelectorAll('#nav a')) a.classList.toggle('active', a.getAttribute('href') === r.nav);
@@ -40,7 +47,7 @@ async function render() {
     const out = await r.view.render(main, r.params, ctx);
     if (token === renderToken) cleanup = typeof out === 'function' ? out : null;
   } catch (err) {
-    if (token !== renderToken) return;
+    if (token !== renderToken || err.status === 401) return;
     main.innerHTML = `<div class="card empty"><h3>No se pudo cargar esta sección</h3><p>${esc(err.message)}</p><button class="btn" onclick="location.reload()">Reintentar</button></div>`;
   }
   main.focus({ preventScroll: true });
@@ -53,12 +60,21 @@ export function navigate(path, { replace = false } = {}) {
   render();
 }
 
-function refreshNav(counts = {}) {
-  $('#nav').innerHTML = NAV.map(
-    (n) => `<a href="${n.path}" data-link>${icon(n.icon)}<span>${n.label}</span>${counts[n.path] != null ? `<span class="count">${counts[n.path]}</span>` : ''}</a>`,
+function refreshNav() {
+  $('#nav').innerHTML = NAV.filter(allowed).map(
+    (n) => `<a href="${n.path}" data-link>${icon(n.icon)}<span>${ctx.isAdmin ? n.label : n.vendedorLabel ?? n.label}</span></a>`,
   ).join('');
   const current = route(location.pathname).nav;
   for (const a of document.querySelectorAll('#nav a')) a.classList.toggle('active', a.getAttribute('href') === current);
+  const u = ctx.user;
+  const initials = u.name.split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+  $('#me').innerHTML = `
+    <div class="avatar">${esc(initials)}</div>
+    <div class="me-text"><b>${esc(u.name)}</b><small>${u.role === 'admin' ? 'Administrador' : 'Vendedor'}</small></div>
+    <button class="icon-btn" id="account" title="Mi cuenta" aria-label="Mi cuenta">${icon('settings')}</button>
+    <button class="icon-btn" id="logout" title="Cerrar sesión" aria-label="Cerrar sesión">${icon('logout')}</button>`;
+  $('#account').onclick = openAccount;
+  $('#logout').onclick = logout;
 }
 
 document.addEventListener('click', (e) => {
@@ -67,13 +83,52 @@ document.addEventListener('click', (e) => {
   e.preventDefault();
   navigate(a.getAttribute('href'));
 });
-window.addEventListener('popstate', render);
+window.addEventListener('popstate', () => { if (ctx.user) render(); });
+// Sesión vencida o cerrada en otro lado → volver al login
+window.addEventListener('auth:expired', () => {
+  if (!ctx.user) return;
+  ctx.user = null;
+  toast('Tu sesión expiró. Volvé a iniciar sesión.', 'err');
+  showAuth();
+});
+
+async function logout() {
+  try { await api.logout(); } catch { /* igual se sale */ }
+  ctx.user = null;
+  showAuth();
+}
+
+/** Mi cuenta: datos y cambio de contraseña (todos los usuarios). */
+function openAccount() {
+  const u = ctx.user;
+  const m = modal(`
+    <h2>Mi cuenta</h2>
+    <p>${esc(u.name)} · <span class="muted">@${esc(u.username)}</span> · ${u.role === 'admin' ? 'Administrador' : 'Vendedor'}</p>
+    <form class="stack" id="pw" style="gap:12px">
+      <label class="field">Contraseña actual<input class="input" type="password" name="current" autocomplete="current-password" required></label>
+      <label class="field">Nueva contraseña (mínimo 8 caracteres)<input class="input" type="password" name="next" autocomplete="new-password" minlength="8" required></label>
+      <div class="error-text" id="pw-err"></div>
+      <div class="btn-row" style="justify-content:flex-end"><button type="button" class="btn" data-close>Cancelar</button><button class="btn btn-primary">Cambiar contraseña</button></div>
+    </form>`);
+  $('[data-close]', m.root).onclick = () => m.close();
+  $('#pw', m.root).onsubmit = async (e) => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    try {
+      await api.changePassword(f.get('current'), f.get('next'));
+      m.close();
+      toast('Contraseña actualizada');
+    } catch (err) {
+      $('#pw-err', m.root).textContent = err.message;
+    }
+  };
+}
 
 /** Modal de análisis: pegar enlace → progreso → abre el prospecto guardado. */
 export function openAnalyze(prefill = '', { autostart = false } = {}) {
   const m = modal(`
     <h2>Nuevo análisis</h2>
-    <p>Pegá el enlace de Google Maps del negocio (botón «Compartir» de la ficha). Queda guardado como prospecto.</p>
+    <p>Pegá el enlace de Google Maps del negocio (botón «Compartir» de la ficha). Queda guardado como prospecto${ctx.isAdmin ? '' : ' asignado a vos'}.</p>
     <form class="row" id="an-form">
       <input class="input" id="an-url" type="url" required placeholder="https://maps.app.goo.gl/…" value="${esc(prefill)}" autocomplete="off">
       <button class="btn btn-primary" id="an-go" type="submit">${icon('sparkles')}Analizar</button>
@@ -105,6 +160,10 @@ export function openAnalyze(prefill = '', { autostart = false } = {}) {
       set(100, 'Listo');
       m.lock(false);
       m.close();
+      if (!done.accesible) {
+        toast(`${done.nombre} ya estaba en la base y está asignado a otra persona. Se actualizó su análisis.`);
+        return;
+      }
       toast(done.creado ? `${done.nombre} agregado a prospectos` : `${done.nombre} actualizado con el nuevo análisis`);
       navigate(`/prospectos/${encodeURIComponent(done.prospectId)}`);
     } catch (err) {
@@ -126,19 +185,48 @@ async function watchServer() {
     await api.status();
     el.innerHTML = '<span class="dot"></span>Conectado';
   } catch {
-    el.innerHTML = '<span class="dot off"></span>Sin conexión con la herramienta';
+    el.innerHTML = '<span class="dot off"></span>Sin conexión';
   }
 }
 
-(async function init() {
-  refreshNav();
+/** Pantalla de acceso (login o creación del primer administrador). */
+async function showAuth() {
+  cleanup?.();
+  cleanup = null;
+  $('#app').classList.add('hidden');
+  const box = $('#auth');
+  box.classList.remove('hidden');
+  let state = { setupRequired: false };
+  try { state = await api.authState(); } catch { /* sin conexión: login igual */ }
+  const done = (user) => startApp(user);
+  if (state.setupRequired) renderSetup(box, state, done);
+  else renderLogin(box, done);
+}
+
+async function startApp(user) {
+  ctx.user = user;
+  ctx.isAdmin = user.role === 'admin';
   try {
     ctx.meta = await api.meta();
     setStatuses(ctx.meta.statuses);
   } catch (err) {
-    $('#view').innerHTML = `<div class="card empty"><h3>La herramienta no responde</h3><p>${esc(err.message)}</p></div>`;
+    if (err.status === 401) return showAuth();
+    $('#auth').innerHTML = `<div class="auth-card"><h1>La herramienta no responde</h1><p class="muted">${esc(err.message)}</p></div>`;
     return;
   }
+  $('#auth').classList.add('hidden');
+  $('#auth').innerHTML = '';
+  $('#app').classList.remove('hidden');
+  refreshNav();
   render();
-  setInterval(watchServer, 15000);
+}
+
+(async function init() {
+  setInterval(() => { if (ctx.user) watchServer(); }, 15000);
+  try {
+    const { user } = await api.me();
+    startApp(user);
+  } catch {
+    showAuth();
+  }
 })();

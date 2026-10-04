@@ -137,6 +137,39 @@ function notesCard(p) {
   </section>`;
 }
 
+/** Valor por defecto del próximo contacto: mañana a las 10:00 (hora local, formato datetime-local). */
+function defaultDue() {
+  const d = new Date(Date.now() + 86_400_000);
+  d.setHours(10, 0, 0, 0);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function followupsCard(p) {
+  const pending = p.followups.filter((f) => f.status === 'pendiente');
+  const closed = p.followups.filter((f) => f.status !== 'pendiente').slice(0, 5);
+  const when = (f) => new Date(f.dueAt).toLocaleString('es-AR', { weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+  return `<section class="card" id="seguimiento">
+    <div class="card-head"><h2>Próximo contacto</h2><span class="sub">${pending.length ? `${pending.length} pendiente${pending.length === 1 ? '' : 's'}` : 'Sin seguimientos'}</span></div>
+    <form class="fu-form" id="fu-form">
+      <div class="row">
+        <input class="input" type="datetime-local" id="fu-date" value="${defaultDue()}" required aria-label="Fecha y hora">
+        <button class="btn btn-sm" type="submit" style="height:36px">${icon('bell')}Agendar</button>
+      </div>
+      <input class="input" id="fu-note" maxlength="1000" placeholder="Recordatorio: ej. llamar para cerrar presupuesto">
+    </form>
+    <div>${pending.map((f) => `
+      <div class="fu">
+        <span class="when ${f.overdue ? 'overdue' : ''}">${esc(f.overdue ? `Vencido · ${when(f)}` : when(f))}</span>
+        <div class="what">${esc(f.note || 'Contactar')}${f.userName ? ` <span class="faint">· ${esc(f.userName)}</span>` : ''}</div>
+        <button class="btn btn-sm" data-fu="${f.id}" data-st="hecho" title="Marcar como hecho">${icon('check')}Hecho</button>
+        <button class="icon-btn" data-fu="${f.id}" data-st="cancelado" title="Cancelar" aria-label="Cancelar seguimiento">${icon('trash')}</button>
+      </div>`).join('')}
+      ${closed.map((f) => `<div class="fu done"><span class="when">${f.status === 'hecho' ? 'Hecho' : 'Cancelado'}</span><div class="what">${esc(f.note || 'Contactar')} · ${esc(when(f))}</div></div>`).join('')}
+    </div>
+  </section>`;
+}
+
 function historyCard(p, activityTypes) {
   const label = (a) => (a.type === 'estado' ? `${statusLabel(a.fromStatus)} → ${statusLabel(a.toStatus)}` : a.label);
   return `<section class="card">
@@ -152,7 +185,7 @@ function historyCard(p, activityTypes) {
       <div class="tl tl-${esc(a.type)}">
         <div class="tl-title">${esc(label(a))}</div>
         ${a.content ? `<div class="tl-content">${esc(a.content)}</div>` : ''}
-        <div class="tl-date">${esc(dateTime(a.createdAt))}</div>
+        <div class="tl-date">${esc(dateTime(a.createdAt))}${a.userName ? ` · ${esc(a.userName)}` : ''}</div>
       </div>`).join('')}
     </div>
   </section>`;
@@ -166,7 +199,7 @@ export async function render(main, { id }, ctx) {
     main.innerHTML = `
       <div class="profile-head">
         <div>
-          <a class="back" href="/prospectos" data-link>${icon('arrowLeft', 'width="14" height="14"')}Prospectos</a>
+          <a class="back" href="/prospectos" data-link>${icon('arrowLeft', 'width="14" height="14"')}${ctx.isAdmin ? 'Prospectos' : 'Mis prospectos'}</a>
           <h1>${esc(p.name)}</h1>
           <div class="muted">${esc([p.category, p.verticalLabel].filter(Boolean).join(' · '))}</div>
           <div class="chips">
@@ -177,9 +210,15 @@ export async function render(main, { id }, ctx) {
           </div>
         </div>
         <div class="page-actions" style="align-items:flex-start">
+          ${ctx.isAdmin
+            ? `<select class="select" id="assignee" aria-label="Vendedor asignado" style="min-width:170px">
+                <option value="">Sin asignar</option>
+                ${(ctx.meta.users ?? []).filter((u) => u.active || u.id === p.assignedUserId).map((u) => `<option value="${esc(u.id)}" ${u.id === p.assignedUserId ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}
+              </select>`
+            : `<span class="chip">${icon('users')}${esc(p.assignedUserName ?? 'Sin asignar')}</span>`}
           <select class="select" id="status" aria-label="Estado comercial" style="min-width:190px">${statusOptions(p.status)}</select>
           <button class="btn" id="reanalyze">${icon('refresh')}Reanalizar</button>
-          <button class="btn btn-danger" id="delete" title="Eliminar prospecto">${icon('trash')}</button>
+          ${ctx.isAdmin ? `<button class="btn btn-danger" id="delete" title="Eliminar prospecto">${icon('trash')}</button>` : ''}
         </div>
       </div>
       <div class="profile">
@@ -187,7 +226,7 @@ export async function render(main, { id }, ctx) {
           <nav class="subnav"><a href="#resumen">Resumen</a><a href="#problemas">Problemas (${p.problems.length})</a><a href="#servicios">Servicios</a><a href="#presupuesto">Presupuesto</a></nav>
           <div class="stack">${summaryCard(p)}${problemsCard(p)}${servicesCard(p)}${budgetCard(p)}</div>
         </div>
-        <div class="stack">${valueCard(p)}${messagesCard(p)}${notesCard(p)}${historyCard(p, ctx.meta.activityTypes)}</div>
+        <div class="stack">${followupsCard(p)}${valueCard(p)}${messagesCard(p)}${notesCard(p)}${historyCard(p, ctx.meta.activityTypes)}</div>
       </div>`;
     bind();
   };
@@ -232,12 +271,56 @@ export async function render(main, { id }, ctx) {
       }
     };
     $('#reanalyze', main).onclick = () => ctx.openAnalyze(p.mapsUrl, { autostart: true });
-    $('#delete', main).onclick = async () => {
+    const assignee = $('#assignee', main);
+    if (assignee) {
+      assignee.onchange = async () => {
+        try {
+          await flushNotes();
+          p = await api.update(id, { assignedUserId: assignee.value || null });
+          toast(p.assignedUserName ? `Asignado a ${p.assignedUserName}` : 'Sin asignar');
+          draw();
+        } catch (err) {
+          toast(err.message, 'err');
+          assignee.value = p.assignedUserId ?? '';
+        }
+      };
+    }
+
+    // Seguimientos
+    $('#fu-form', main).onsubmit = async (e) => {
+      e.preventDefault();
+      const local = $('#fu-date', main).value;
+      if (!local) return;
+      try {
+        await flushNotes();
+        await api.addFollowup(id, new Date(local).toISOString(), $('#fu-note', main).value.trim());
+        p = await api.prospect(id);
+        toast('Próximo contacto agendado');
+        draw();
+      } catch (err) {
+        toast(err.message, 'err');
+      }
+    };
+    for (const b of $$('[data-fu]', main)) {
+      b.onclick = async () => {
+        try {
+          await flushNotes();
+          await api.setFollowup(b.dataset.fu, b.dataset.st);
+          p = await api.prospect(id);
+          toast(b.dataset.st === 'hecho' ? 'Seguimiento completado' : 'Seguimiento cancelado');
+          draw();
+        } catch (err) {
+          toast(err.message, 'err');
+        }
+      };
+    }
+
+    $('#delete', main)?.addEventListener('click', async () => {
       if (!(await confirmDialog('Eliminar prospecto', `Se borra ${p.name} con todo su historial y auditorías. No se puede deshacer.`, 'Eliminar'))) return;
       await api.remove(id);
       toast(`${p.name} eliminado`);
       ctx.navigate('/prospectos');
-    };
+    });
 
     // Mensajes
     for (const b of $$('[data-msg]', main)) b.onclick = () => { msgKey = b.dataset.msg; showMessage(); };

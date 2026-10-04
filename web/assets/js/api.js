@@ -6,7 +6,8 @@ async function request(method, path, body) {
     body: body ? JSON.stringify(body) : undefined,
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
+  if (res.status === 401 && !path.startsWith('/api/auth/')) window.dispatchEvent(new CustomEvent('auth:expired'));
+  if (!res.ok) throw Object.assign(new Error(data.error || `Error ${res.status}`), { status: res.status });
   return data;
 }
 
@@ -24,9 +25,27 @@ export const api = {
   settings: () => request('GET', '/api/settings'),
   saveSettings: (body) => request('PUT', '/api/settings', body),
 
+  // Sesión y usuarios
+  authState: () => request('GET', '/api/auth/estado'),
+  me: () => request('GET', '/api/auth/me'),
+  login: (username, password) => request('POST', '/api/auth/login', { username, password }),
+  logout: () => request('POST', '/api/auth/logout'),
+  setup: (body) => request('POST', '/api/auth/setup', body),
+  changePassword: (current, next) => request('PUT', '/api/auth/password', { current, next }),
+  users: () => request('GET', '/api/users'),
+  createUser: (body) => request('POST', '/api/users', body),
+  updateUser: (id, body) => request('PATCH', `/api/users/${encodeURIComponent(id)}`, body),
+  activity: (params = {}) => request('GET', '/api/activity?' + new URLSearchParams(Object.entries(params).filter(([, v]) => v))),
+  assign: (ids, userId) => request('POST', '/api/prospects/assign', { ids, userId }),
+
+  // Seguimientos
+  addFollowup: (id, dueAt, note) => request('POST', `/api/prospects/${encodeURIComponent(id)}/followups`, { dueAt, note }),
+  setFollowup: (id, status) => request('PATCH', `/api/followups/${encodeURIComponent(id)}`, { status }),
+
   /** Análisis con progreso: onEvent recibe cada línea del stream. Devuelve el evento final. */
   async analyze(url, onEvent) {
     const res = await fetch('/api/analizar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }) });
+    if (res.status === 401) window.dispatchEvent(new CustomEvent('auth:expired'));
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
       throw new Error(data.error || `Error ${res.status}`);

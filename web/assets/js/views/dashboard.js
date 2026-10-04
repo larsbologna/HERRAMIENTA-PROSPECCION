@@ -9,6 +9,42 @@ const kpi = (label, value, sub, iconName, accent = false) => `
     ${sub ? `<div class="kpi-sub">${sub}</div>` : ''}
   </div>`;
 
+/** Alerta de seguimientos pendientes (hoy y vencidos) + KPIs personales. */
+function personalBlock(d, ctx) {
+  const p = d.personal;
+  const due = d.followupsDue ?? [];
+  const count = d.followupsDueCount ?? 0;
+  const overdue = due.filter((f) => f.overdue).length;
+  const team = d.scope === 'equipo';
+  const alert = count
+    ? `<div class="alert ${overdue ? 'warn' : ''}">
+        <span class="alert-icon">${icon('bell')}</span>
+        <div class="grow">
+          <b>${number(count)} seguimiento${count === 1 ? '' : 's'} pendiente${count === 1 ? '' : 's'}</b>
+          <div class="muted" style="font-size:13px">${overdue ? `${number(overdue)} vencido${overdue === 1 ? '' : 's'} · ` : ''}${team ? 'de todo el equipo, ' : ''}para hoy o atrasados</div>
+        </div>
+        <a class="btn btn-sm" href="#seguimientos">Ver lista</a>
+      </div>`
+    : '';
+  return `${alert}
+    <div class="section-label">Tu actividad</div>
+    <div class="grid grid-4" style="margin-bottom:22px">
+      ${kpi('Prospectos asignados', number(p.assigned), `${number(p.open)} abiertos`, 'users')}
+      ${kpi('Seguimientos pendientes', number(p.followupsPending), p.followupsOverdue ? `${number(p.followupsOverdue)} vencido${p.followupsOverdue === 1 ? '' : 's'}` : 'Para hoy o atrasados', 'bell', p.followupsPending > 0)}
+      ${kpi('Reuniones agendadas', number(p.meetingsNow), `${number(p.meetings)} llegaron a reunión`, 'calendar')}
+      ${kpi('Conversión personal', pct(p.conversionRate), `${number(p.clients)} cliente${p.clients === 1 ? '' : 's'} de ${number(p.contacted)} contactados`, 'target')}
+    </div>
+    ${due.length ? `<div class="card" id="seguimientos" style="margin-bottom:22px">
+      <div class="card-head"><h2>Seguimientos para hoy</h2><span class="sub">${team ? 'Equipo completo' : 'Tus prospectos'}</span></div>
+      <div>${due.map((f) => `
+        <div class="fu">
+          <span class="when ${f.overdue ? 'overdue' : ''}">${esc(f.overdue ? `Vencido · ${ago(f.dueAt)}` : new Date(f.dueAt).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }))}</span>
+          <div class="what"><a href="/prospectos/${encodeURIComponent(f.prospectId)}" data-link>${esc(f.prospectName ?? '')}</a>${f.note ? ` · ${esc(f.note)}` : ''}${team && f.userName ? ` <span class="faint">· ${esc(f.userName)}</span>` : ''}</div>
+        </div>`).join('')}</div>
+    </div>` : ''}
+    ${team ? '<div class="section-label">Equipo</div>' : '<div class="section-label">Tus prospectos</div>'}`;
+}
+
 export async function render(main, _params, ctx) {
   const d = await api.dashboard();
   const k = d.kpis;
@@ -20,8 +56,9 @@ export async function render(main, _params, ctx) {
       <div><h1>Dashboard</h1><p>${esc(today.charAt(0).toUpperCase() + today.slice(1))} · resumen de tu prospección</p></div>
       <div class="page-actions"><button class="btn btn-primary" id="new">${icon('plus')}Nuevo análisis</button></div>
     </div>
+    ${personalBlock(d, ctx)}
     ${k.analyzed === 0
-      ? emptyState('target', 'Todavía no analizaste ningún negocio', 'Pegá el enlace de Google Maps de un negocio y la herramienta lo audita, arma los argumentos de venta y lo guarda como prospecto.', `<button class="btn btn-primary" id="first">${icon('sparkles')}Analizar el primer negocio</button>`)
+      ? emptyState('target', ctx.isAdmin ? 'Todavía no analizaste ningún negocio' : 'Todavía no tenés prospectos asignados', ctx.isAdmin ? 'Pegá el enlace de Google Maps de un negocio y la herramienta lo audita, arma los argumentos de venta y lo guarda como prospecto.' : 'Analizá un negocio o pedile a un administrador que te asigne prospectos.', `<button class="btn btn-primary" id="first">${icon('sparkles')}Analizar un negocio</button>`)
       : `
     <div class="grid grid-4">
       ${kpi('Prospectos analizados', number(k.analyzed), '', 'audit')}
@@ -61,6 +98,10 @@ export async function render(main, _params, ctx) {
     </div>`}`;
 
   $('#new', main).onclick = () => ctx.openAnalyze();
+  main.querySelector('a[href="#seguimientos"]')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    $('#seguimientos', main)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
   const first = $('#first', main);
   if (first) first.onclick = () => ctx.openAnalyze();
   if (k.analyzed === 0) return;

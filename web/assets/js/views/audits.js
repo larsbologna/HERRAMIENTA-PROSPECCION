@@ -15,11 +15,12 @@ export async function render(main, _params, ctx) {
       </form>
     </div>
     ${items.length ? `<div class="table-wrap"><table class="table">
-      <thead><tr><th>Fecha</th><th>Negocio</th><th>Score</th><th class="right">Problemas</th><th class="right">Duración</th><th>Origen</th></tr></thead>
+      <thead><tr><th>Fecha</th><th>Negocio</th><th>Usuario</th><th>Score</th><th class="right">Problemas</th><th class="right">Duración</th><th>Origen</th></tr></thead>
       <tbody>${items.map((a) => `
         <tr data-id="${esc(a.prospectId)}">
           <td class="muted num">${esc(dateTime(a.createdAt))}</td>
           <td class="name">${esc(a.prospectName)}</td>
+          <td class="muted">${esc(a.userName ?? '—')}</td>
           <td>${scoreHtml(a.score)}</td>
           <td class="right num">${a.problemsCount}</td>
           <td class="right num muted">${a.durationMs ? `${(a.durationMs / 1000).toFixed(0)} s` : '—'}</td>

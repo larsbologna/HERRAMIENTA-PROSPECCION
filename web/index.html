@@ -11,7 +11,8 @@
 <link rel="stylesheet" href="/assets/styles.css">
 </head>
 <body>
-<div class="app">
+<div class="auth hidden" id="auth"></div>
+<div class="app hidden" id="app">
   <aside class="sidebar">
     <a class="brand" href="/" data-link>
       <span class="brand-mark">P</span>
@@ -19,7 +20,10 @@
     </a>
     <div class="nav-label">Menú</div>
     <nav class="nav" id="nav"></nav>
-    <div class="sidebar-foot" id="server-state"><span class="dot"></span>Conectado</div>
+    <div class="sidebar-foot">
+      <div class="me" id="me"></div>
+      <div class="server-state" id="server-state"><span class="dot"></span>Conectado</div>
+    </div>
   </aside>
   <main class="main" id="view" tabindex="-1"></main>
 </div>

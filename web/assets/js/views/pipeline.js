@@ -1,10 +1,12 @@
 import { api } from '../api.js';
 import { $, $$, ago, esc, icon, moneyShort, number, scoreHtml, statuses, toast } from '../ui.js';
 
-function card(p) {
+let assignedFilter = '';
+
+function card(p, showOwner) {
   return `<article class="deal" draggable="true" data-id="${esc(p.id)}" data-status="${esc(p.status)}">
     <h4>${esc(p.name)}</h4>
-    <div class="meta">${esc(p.verticalLabel ?? '—')} · ${esc(ago(p.lastActivityAt))}</div>
+    <div class="meta">${esc(p.verticalLabel ?? '—')} · ${esc(ago(p.lastActivityAt))}${showOwner ? ` · ${esc(p.assignedUserName ?? 'Sin asignar')}` : ''}</div>
     <div class="row"><span class="value num">${esc(moneyShort(p.status === 'cliente' ? p.closedValue ?? p.potentialValue : p.potentialValue))}</span>${scoreHtml(p.score)}</div>
     <select class="select move" aria-label="Mover ${esc(p.name)} a otra etapa">
       ${statuses().map((s) => `<option value="${s.id}" ${s.id === p.status ? 'selected' : ''}>${s.id === p.status ? 'Mover a…' : esc(s.label)}</option>`).join('')}
@@ -13,13 +15,21 @@ function card(p) {
 }
 
 export async function render(main, _params, ctx) {
-  const { items } = await api.prospects({ sort: 'lastActivity', dir: 'desc' });
+  const admin = ctx.isAdmin;
+  const sellers = (ctx.meta.users ?? []).filter((u) => u.active);
+  const { items } = await api.prospects({ sort: 'lastActivity', dir: 'desc', assigned: admin ? assignedFilter : '' });
   const byId = new Map(items.map((p) => [p.id, p]));
 
   main.innerHTML = `
     <div class="page-head">
       <div><h1>Pipeline comercial</h1><p class="muted">Arrastrá cada negocio a la etapa en la que está. Los cambios se guardan solos.</p></div>
-      <div class="page-actions"><button class="btn btn-primary" id="new">${icon('plus')}Nuevo análisis</button></div>
+      <div class="page-actions">
+        ${admin ? `<select class="select" id="who" aria-label="Vendedor">
+          <option value="">Todo el equipo</option><option value="me">Mis prospectos</option><option value="none">Sin asignar</option>
+          ${sellers.map((u) => `<option value="${esc(u.id)}">${esc(u.name)}</option>`).join('')}
+        </select>` : ''}
+        <button class="btn btn-primary" id="new">${icon('plus')}Nuevo análisis</button>
+      </div>
     </div>
     <div class="board" id="board">
       ${statuses().map((s) => `
@@ -30,12 +40,17 @@ export async function render(main, _params, ctx) {
         </section>`).join('')}
     </div>`;
   $('#new', main).onclick = () => ctx.openAnalyze();
+  const who = $('#who', main);
+  if (who) {
+    who.value = assignedFilter;
+    who.onchange = () => { assignedFilter = who.value; render(main, _params, ctx); };
+  }
   const board = $('#board', main);
 
   const paint = () => {
     for (const col of $$('.column', board)) {
       const list = items.filter((p) => p.status === col.dataset.status);
-      $('[data-body]', col).innerHTML = list.length ? list.map(card).join('') : '<div class="column-empty">Soltá un prospecto acá</div>';
+      $('[data-body]', col).innerHTML = list.length ? list.map((p) => card(p, admin && !assignedFilter)).join('') : '<div class="column-empty">Soltá un prospecto acá</div>';
       $('[data-count]', col).textContent = number(list.length);
       const value = list.reduce((s, p) => s + (p.status === 'cliente' ? p.closedValue ?? p.potentialValue : p.potentialValue), 0);
       $('[data-total]', col).textContent = list.length ? moneyShort(value) : '—';
