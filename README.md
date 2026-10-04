@@ -5,7 +5,7 @@ Pegás el enlace de un negocio y la herramienta lo audita, detecta problemas con
 
 Servicios que ayuda a vender: **Optimización de Google Maps · Sitios web · Bot IA para WhatsApp · Automatización de atención · Sistema de reservas · Dashboard administrativo · Gestión de reputación**.
 
-Funciona en tu computadora, sin Google Cloud ni APIs pagas (lee la ficha pública con Playwright).
+Funciona en tu computadora o en un VPS para todo el equipo (**multiusuario** con roles), sin Google Cloud ni APIs pagas (lee la ficha pública con Playwright).
 
 ---
 
@@ -22,17 +22,37 @@ Funciona en tu computadora, sin Google Cloud ni APIs pagas (lee la ficha públic
 La primera vez instala lo necesario. Después se abre sola en `http://localhost:3000`.
 Para cerrarla, cerrá la ventana negra. Tus datos quedan guardados.
 
+**Primer ingreso:** la herramienta pide crear el **administrador** (nombre, usuario y contraseña). Desde ahí se entra siempre con usuario y contraseña; la sesión se mantiene 30 días hasta que cierres sesión.
+
+### Usuarios y roles
+
+| | Administrador | Vendedor |
+|---|---|---|
+| Dashboard | Global + su actividad | Solo sus prospectos + su actividad |
+| Prospectos / Pipeline / Perfil | Todos, con filtro por vendedor y asignación | **Mis prospectos**: los que analizó o le asignaron |
+| Notas, historial, mensajes, seguimientos | ✔ | ✔ (en sus prospectos) |
+| Asignar / eliminar prospectos | ✔ | — |
+| Auditorías, Métricas globales | ✔ | — |
+| Configuración, precios, usuarios, registro de actividad | ✔ | — |
+
+- **Configuración → Usuarios:** crear, editar, cambiar contraseña, desactivar o reactivar vendedores y administradores.
+- **Configuración → Actividad:** quién hizo qué y cuándo (login, logout, cambios de estado, WhatsApp, notas, análisis, asignaciones, seguimientos).
+- Cada negocio que analiza un vendedor queda asignado a él. Los mensajes de WhatsApp se firman con el nombre del usuario.
+- **Seguimientos:** en el perfil del prospecto agendás el próximo contacto (fecha, hora y recordatorio) y lo marcás *Hecho* o *Cancelado*. El Dashboard avisa "N seguimientos pendientes" y muestra los de hoy y los vencidos.
+- Al reasignar un prospecto, sus seguimientos pendientes pasan al nuevo responsable.
+- Para usar la herramienta desde internet con todo el equipo: **[docs/DESPLIEGUE.md](docs/DESPLIEGUE.md)** (VPS Hostinger/Contabo, Nginx, HTTPS, Cloudflare).
+
 ### Secciones
 
 | Sección | Para qué |
 |---|---|
-| **Dashboard** | Prospectos analizados, sin contactar, contactados, respondieron, reuniones, clientes, valor potencial y cerrado. Gráficos de prospectos por mes, valor acumulado, conversiones y estado comercial. Lista de "para contactar primero". |
-| **Prospectos** | Tabla con búsqueda, filtros por estado, rubro y score, y orden por cualquier columna. |
+| **Dashboard** | Alerta de seguimientos pendientes y tu actividad (asignados, seguimientos, reuniones, conversión personal). Prospectos analizados, sin contactar, contactados, respondieron, reuniones, clientes, valor potencial y cerrado. Gráficos de prospectos por mes, valor acumulado, conversiones y estado comercial. Lista de "para contactar primero". |
+| **Prospectos** | Tabla con búsqueda, filtros por estado, rubro, score y vendedor, próximo contacto, asignación masiva (admin) y orden por cualquier columna. |
 | **Pipeline** | Kanban: Sin contactar → Contactado → Respondió → Reunión agendada → Propuesta enviada → Cliente / Perdido. Arrastrá las tarjetas; se guarda solo. |
 | **Auditorías** | Nuevo análisis y registro de todos los análisis (incluidos los reanálisis). |
-| **Perfil del prospecto** | Score por área, datos del negocio, problemas (impacto, motivo, servicio, beneficio), servicios recomendados, presupuesto, potencial económico, mensajes de WhatsApp, notas internas e historial. |
+| **Perfil del prospecto** | Responsable, próximo contacto, score por área, datos del negocio, problemas (impacto, motivo, servicio, beneficio), servicios recomendados, presupuesto, potencial económico, mensajes de WhatsApp, notas internas e historial. |
 | **Métricas** | Conversión, ticket promedio, servicios más recomendados, rubros más analizados, scores promedio y distribución. |
-| **Configuración** | Tus datos para los mensajes, tabla de precios y copia de seguridad. |
+| **Configuración** | Datos del negocio, tabla de precios, copia de seguridad, usuarios y registro de actividad (solo administrador). |
 
 ### Flujo diario sugerido
 
@@ -74,7 +94,8 @@ Se configuran en **`precios.json`** (editalo con cualquier editor de texto):
 - Base de datos: **`data/prospeccion.db`** (SQLite). Copiar ese archivo es una copia de seguridad completa.
 - Configuración → **Descargar copia (JSON)** exporta prospectos, auditorías, historial y configuración.
 - Si existen informes de la primera versión (`data/reports/*/report.json`), se importan solos al iniciar (una sola vez).
-- La herramienta solo es accesible desde tu computadora (127.0.0.1).
+- Por defecto la herramienta solo es accesible desde tu computadora (127.0.0.1). Para acceso remoto, ver [docs/DESPLIEGUE.md](docs/DESPLIEGUE.md).
+- Las contraseñas se guardan con hash scrypt; nunca en texto plano.
 
 ---
 
@@ -84,6 +105,11 @@ Se configuran en **`precios.json`** (editalo con cualquier editor de texto):
 npm run analizar -- "https://maps.app.goo.gl/XXXX"     # analiza, guarda y muestra el resultado
 npm run diagnose -- "https://maps.app.goo.gl/XXXX"     # modo diagnóstico del scraper
 npm run diagnose -- "<url>" --visible                  # viendo el navegador
+
+npm run usuarios -- crear --usuario ivan --nombre "Iván" --rol admin   # crear usuario (pide la contraseña)
+npm run usuarios -- listar
+npm run usuarios -- clave --usuario silvia                             # nueva contraseña
+npm run usuarios -- desactivar --usuario silvia                        # o: activar
 ```
 
 El **modo diagnóstico** muestra, para cada dato leído de Google Maps, el valor, el selector, el nivel de confianza y la fuente exacta, y genera `data/diagnostics/<fecha>/diagnostico.json` con el HTML de cada pestaña. Es la herramienta para ajustar selectores si Google cambia su página.
@@ -105,10 +131,12 @@ web/                       Interfaz (SPA sin build)
         ├── api.js         Cliente de la API
         ├── charts.js      Gráficos SVG
         ├── ui.js          Formato, íconos, modales, avisos
-        └── views/         dashboard, prospects, pipeline, audits, prospect, metrics, settings
+        └── views/         auth, dashboard, prospects, pipeline, audits, prospect, metrics, settings
 src/
-├── server.ts              Arranque (127.0.0.1)
-├── api/                   Rutas HTTP (node:http, sin frameworks)
+├── server.ts              Arranque (127.0.0.1 por defecto; HOST/TRUST_PROXY para VPS)
+├── usersCli.ts            Gestión de usuarios por terminal
+├── api/                   Rutas HTTP (node:http, sin frameworks) con sesión y permisos por rol
+├── auth/                  Contraseñas (scrypt), usuarios, sesiones, límite de intentos
 ├── crm/                   Repositorio SQLite, estados, estadísticas, importación de la V1
 ├── db/                    Conexión node:sqlite y migraciones versionadas
 ├── messages/              Mensajes de WhatsApp (primer contacto, corto, seguimiento)
@@ -119,23 +147,33 @@ src/
 ├── diagnostics/           Modo diagnóstico del scraper                  ┘
 ├── domain/                Tipos y perfiles por rubro
 ├── cli.ts / diagnose.ts   Uso por terminal
+deploy/                    Ejemplos de Nginx y systemd para VPS
+docs/DESPLIEGUE.md         Guía de despliegue
 test/                      Tests: unitarios, CRM, API, mensajes, diagnóstico y e2e con Chromium
 ```
 
-### API local
+### API
+
+Todas las rutas requieren sesión salvo las de `/api/auth` (login, estado, alta inicial). Las marcadas *admin* responden 403 a un vendedor; un prospecto ajeno responde 404.
 
 | Método | Ruta | Descripción |
 |---|---|---|
+| POST | `/api/auth/login` · `/api/auth/logout` | Iniciar / cerrar sesión (cookie `HttpOnly`) |
+| GET / PUT | `/api/auth/me` · `/api/auth/password` | Usuario actual · cambiar la propia contraseña |
 | POST | `/api/analizar` | Analiza y guarda (progreso en streaming NDJSON) |
-| GET | `/api/prospects` | Listado (`q`, `status`, `vertical`, `minScore`, `maxScore`, `sort`, `dir`) |
-| GET / PATCH / DELETE | `/api/prospects/:id` | Detalle con mensajes · estado, notas, valor cerrado · borrar |
+| GET | `/api/prospects` | Listado (`q`, `status`, `vertical`, `minScore`, `maxScore`, `sort`, `dir`; admin: `assigned=me\|none\|<id>`) |
+| GET / PATCH / DELETE | `/api/prospects/:id` | Detalle con mensajes · estado, notas, valor cerrado, responsable (admin) · borrar (admin) |
+| POST | `/api/prospects/assign` | Asignación masiva (admin) |
+| GET / POST / PATCH | `/api/followups`, `/api/prospects/:id/followups`, `/api/followups/:id` | Seguimientos: listar, agendar, marcar hecho o cancelado |
 | POST | `/api/prospects/:id/activities` | Registrar actividad (nota, llamada, WhatsApp, email, reunión, otra) |
-| GET | `/api/dashboard`, `/api/metrics`, `/api/audits` | Datos agregados |
-| GET / PUT | `/api/settings` | Configuración y precios |
-| GET | `/api/export` | Copia de seguridad JSON |
+| GET | `/api/dashboard` | Datos agregados (del vendedor o globales) y KPIs personales |
+| GET | `/api/metrics`, `/api/audits`, `/api/activity` | Métricas, auditorías y registro de actividad (admin) |
+| GET / POST / PATCH | `/api/users`, `/api/users/:id` | Gestión de usuarios (admin) |
+| GET / PUT | `/api/settings` | Configuración y precios (admin) |
+| GET | `/api/export` | Copia de seguridad JSON (admin) |
 
 ```bash
-npm test           # 43 tests: unitarios, presupuesto, CRM, API, mensajes, diagnóstico y e2e con Chromium
+npm test           # 52 tests: unitarios, presupuesto, CRM, migraciones, autenticación y roles, API, mensajes, diagnóstico y e2e con Chromium
 npm run typecheck
 ```
 
