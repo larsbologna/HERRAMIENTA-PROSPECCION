@@ -32,7 +32,8 @@ export function renderLogin(box, onDone) {
       $('input[name=password]', form).select();
     }
   };
-  setTimeout(() => $('input[name=username]', box)?.focus(), 30);
+  // Foco inicial solo si el usuario todavía no está escribiendo (evita robarle el foco al campo de contraseña).
+  setTimeout(() => { if (!box.contains(document.activeElement)) $('input[name=username]', box)?.focus(); }, 30);
 }
 
 /** Primera vez: crear el administrador. Solo funciona desde la misma computadora o con SETUP_TOKEN. */
