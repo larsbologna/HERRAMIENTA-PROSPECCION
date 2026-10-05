@@ -13,6 +13,7 @@ import { DEFAULT_VERTICAL, VERTICALS } from '../domain/verticals.js';
 import { buildMessages, MESSAGE_KEYS, type MessageKey } from '../messages/whatsapp.js';
 import { generateProspects as defaultGenerate, MAX_CANTIDAD } from '../generator/generator.js';
 import { GENERATOR_STATUSES, type GeneratorRepository } from '../generator/repository.js';
+import { catalogFrom } from '../proposal/catalog.js';
 import { SERVICE_CATALOG } from '../proposal/services.js';
 import {
   HttpError,
@@ -341,6 +342,14 @@ export function createApp(deps: AppDeps): http.Server {
       ensureAccess(user, params.id!);
       return detailFor(user, params.id!);
     })
+    // Presupuesto personalizado del prospecto: { items: [{id, setup, monthly}], discountPct } o null para volver al automático.
+    .on('PUT', '/api/prospects/:id/presupuesto', async ({ req, params, user }) => {
+      ensureAccess(user, params.id!);
+      const body = await readJson<{ override?: unknown }>(req);
+      if (!('override' in body)) throw new HttpError(400, 'Falta el presupuesto.');
+      repo.setBudgetOverride(params.id!, body.override ?? null, user.id);
+      return detailFor(user, params.id!);
+    })
     // "Otra versión" del mensaje de WhatsApp: devuelve una variante distinta de la anterior.
     .on('GET', '/api/prospects/:id/mensaje', ({ params, query, user }) => {
       ensureAccess(user, params.id!);
@@ -481,7 +490,9 @@ export function createApp(deps: AppDeps): http.Server {
         priceError: repo.priceError ?? null,
         pricesFile: path.join(ROOT_DIR, 'precios.json'),
         databaseFile: DB_FILE,
-        services: Object.values(SERVICE_CATALOG).map((s) => ({ id: s.id, name: s.name })),
+        services: Object.values(SERVICE_CATALOG).map((s) => ({ id: s.id, name: s.name, description: s.pitch })),
+        // Catálogo efectivo: servicios de la herramienta (con cambios) + servicios propios.
+        catalog: catalogFrom(prices),
       };
     }, { roles: ADMIN })
     .on('PUT', '/api/settings', async ({ req, user }) => {

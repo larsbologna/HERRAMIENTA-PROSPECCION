@@ -14,7 +14,7 @@ export async function render(main, _params, ctx) {
     ${!t.prospects ? emptyState('chart', 'Todavía no hay datos', 'Las métricas aparecen cuando analices los primeros negocios.', `<button class="btn btn-primary" id="first">${icon('sparkles')}Nuevo análisis</button>`) : `
     <div class="grid grid-3">
       ${kpi('Total prospectos', number(t.prospects), `${number(t.clients)} clientes · ${number(t.lost)} perdidos`, 'users')}
-      ${kpi('Valor potencial', moneyShort(t.potentialValue), `Total de proyectos: ${moneyShort(t.projectTotal)}`, 'money', true)}
+      ${kpi('Valor potencial', moneyShort(t.potentialValue), `Pago inicial · plan completo: ${moneyShort(t.projectTotal)}`, 'money', true)}
       ${kpi('Valor cerrado', moneyShort(t.closedValue), t.clients ? `Ticket promedio cerrado: ${moneyShort(t.averageClosedTicket)}` : 'Sin clientes todavía', 'star', true)}
       ${kpi('Conversión', pct(t.conversionRate), `De contactado a cliente · ${pct(t.conversionFromAnalyzed)} sobre analizados`, 'target')}
       ${kpi('Ticket promedio', moneyShort(t.averageTicket), 'Valor potencial por prospecto', 'money')}

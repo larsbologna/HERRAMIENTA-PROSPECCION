@@ -21,6 +21,7 @@ export const api = {
   prospect: (id) => request('GET', `/api/prospects/${encodeURIComponent(id)}`),
   messageVariant: (id, tipo, variante) => request('GET', `/api/prospects/${encodeURIComponent(id)}/mensaje?tipo=${encodeURIComponent(tipo)}&variante=${variante}`),
   update: (id, body) => request('PATCH', `/api/prospects/${encodeURIComponent(id)}`, body),
+  setBudget: (id, override) => request('PUT', `/api/prospects/${encodeURIComponent(id)}/presupuesto`, { override }),
   remove: (id) => request('DELETE', `/api/prospects/${encodeURIComponent(id)}`),
   addActivity: (id, type, content) => request('POST', `/api/prospects/${encodeURIComponent(id)}/activities`, { type, content }),
   settings: () => request('GET', '/api/settings'),

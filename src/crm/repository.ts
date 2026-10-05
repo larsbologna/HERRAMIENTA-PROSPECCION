@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { AnalysisResult, AreaScore, Budget, SalesArgument, ServiceRecommendation } from '../domain/types.js';
 import { transaction, type Db } from '../db/database.js';
-import { buildBudget, loadPriceList, validatePriceList, writePriceList, type PriceList } from '../proposal/budget.js';
+import { buildBudget, loadPriceList, validateBudgetOverride, validatePriceList, writePriceList, type BudgetOverride, type PriceList } from '../proposal/budget.js';
+import { catalogFrom, catalogMap, isActiveService, serviceName } from '../proposal/catalog.js';
 import { SERVICE_CATALOG } from '../proposal/services.js';
 import {
   ACTIVITY_TYPES,
@@ -190,13 +191,14 @@ export class CrmRepository {
   refreshValuesIfPricesChanged(): boolean {
     const prices = this.prices();
     if (!prices) return false;
-    const fingerprint = JSON.stringify(prices);
+    // "v2": el cálculo cambió (sin meses de contrato): fuerza un recálculo único de todo.
+    const fingerprint = `v2:${JSON.stringify(prices)}`;
     if (this.getSetting('prices_fingerprint') === fingerprint) return false;
-    const rows = this.db.prepare('SELECT id, services_json FROM prospects').all() as Row[];
+    const rows = this.db.prepare('SELECT id, services_json, budget_override_json FROM prospects').all() as Row[];
     const update = this.db.prepare('UPDATE prospects SET budget_json = ?, potential_value = ?, project_total = ? WHERE id = ?');
     transaction(this.db, () => {
       for (const r of rows) {
-        const budget = buildBudget(parse<ServiceRecommendation[]>(r.services_json, []), prices);
+        const budget = buildBudget(parse<ServiceRecommendation[]>(r.services_json, []), prices, parse<BudgetOverride | null>(r.budget_override_json, null));
         update.run(json(budget), budget.potentialValue, budget.projectTotal, String(r.id));
       }
       this.setSetting('prices_fingerprint', fingerprint);
@@ -217,9 +219,12 @@ export class CrmRepository {
     const p = result.profile;
     if (!p.name) throw new ValidationError('El análisis no tiene nombre de negocio.');
     const prices = this.prices();
-    const budget: Budget = prices ? buildBudget(result.proposal.services, prices) : result.budget;
-    const problems = result.proposal.salesArguments;
     const key = dedupeKey(p.name, p.address, p.phone ?? result.url);
+    // Un reanálisis conserva el presupuesto personalizado que se haya armado para el cliente.
+    const prev = this.db.prepare('SELECT budget_override_json FROM prospects WHERE dedupe_key = ?').get(key) as Row | undefined;
+    const override = parse<BudgetOverride | null>(prev?.budget_override_json, null);
+    const budget: Budget = prices ? buildBudget(result.proposal.services, prices, override) : result.budget;
+    const problems = result.proposal.salesArguments;
     const ts = now();
     const analyzedAt = result.analyzedAt || ts;
     const fields = {
@@ -322,18 +327,60 @@ export class CrmRepository {
       FROM prospects p LEFT JOIN users u ON u.id = p.assigned_user_id WHERE p.id = ?`).get(id) as Row | undefined;
     if (!r) throw new NotFoundError('Prospecto no encontrado.');
     const latest = this.db.prepare('SELECT result_json FROM audits WHERE prospect_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1').get(id) as Row | undefined;
+    // Catálogo actual: los servicios quitados no se muestran ni se ofrecen, y se usan los nombres editados.
+    const prices = this.prices();
+    const catalog = catalogMap(prices);
+    const services = parse<ServiceRecommendation[]>(r.services_json, [])
+      .filter((sv) => isActiveService(catalog, sv.id))
+      .map((sv) => ({ ...sv, name: serviceName(catalog, sv.id, sv.name) }));
+    const join = (names: string[]) => (names.length > 1 ? `${names.slice(0, -1).join(', ')} y ${names.at(-1)}` : (names[0] ?? ''));
+    const problems = parse<SalesArgument[]>(r.problems_json, []).map((a) => {
+      const ids = a.serviceIds.filter((sid) => isActiveService(catalog, sid));
+      return { ...a, serviceIds: ids, service: ids.length ? join(ids.map((sid) => serviceName(catalog, sid))) : 'A definir (el servicio sugerido fue quitado del catálogo)' };
+    });
     return {
       ...toSummary(r),
       notes: String(r.notes ?? ''),
       areaScores: parse<AreaScore[]>(r.area_scores_json, []),
-      problems: parse<SalesArgument[]>(r.problems_json, []),
-      services: parse<ServiceRecommendation[]>(r.services_json, []),
+      problems,
+      services,
       budget: parse<Budget>(r.budget_json, {} as Budget),
+      budgetOverride: parse<BudgetOverride | null>(r.budget_override_json, null),
+      catalog: catalogFrom(prices).filter((c) => c.active),
       audits: this.audits({ prospectId: id }),
       activities: (this.db.prepare(`${ACTIVITY_SELECT} WHERE a.prospect_id = ? ORDER BY a.created_at DESC, a.id DESC`).all(id) as Row[]).map(toActivity),
       followups: this.followups({ prospectId: id, includeClosed: true }),
       analysis: parse<AnalysisResult>(latest?.result_json, {} as AnalysisResult),
     };
+  }
+
+  /**
+   * Presupuesto personalizado para un prospecto (servicios y precios elegidos a mano).
+   * null = volver al presupuesto automático.
+   */
+  setBudgetOverride(id: string, input: unknown, actorId: string | null = null): ProspectDetail {
+    const r = this.db.prepare('SELECT services_json FROM prospects WHERE id = ?').get(id) as Row | undefined;
+    if (!r) throw new NotFoundError('Prospecto no encontrado.');
+    const prices = this.prices();
+    if (!prices) throw new ValidationError('precios.json tiene un error: corregilo en Configuración antes de armar presupuestos.');
+    let override: BudgetOverride | null = null;
+    if (input !== null) {
+      try {
+        override = validateBudgetOverride(input, prices);
+      } catch (err) {
+        throw new ValidationError((err as Error).message);
+      }
+    }
+    const budget = buildBudget(parse<ServiceRecommendation[]>(r.services_json, []), prices, override);
+    const ts = now();
+    this.db
+      .prepare('UPDATE prospects SET budget_override_json = ?, budget_json = ?, potential_value = ?, project_total = ?, updated_at = ? WHERE id = ?')
+      .run(override ? json(override) : null, json(budget), budget.potentialValue, budget.projectTotal, ts, id);
+    const fmt = (n: number) => `$${n.toLocaleString('es-AR')}`;
+    this.logActivity(id, 'presupuesto', override
+      ? `Presupuesto personalizado: ${override.items.map((i) => i.name).join(', ')} · ${fmt(budget.recommended.setupAfterDiscount)} inicial + ${fmt(budget.recommended.monthly)}/mes`
+      : 'Volvió al presupuesto automático', ts, actorId);
+    return this.get(id);
   }
 
   /** Asignado actual de un prospecto (undefined si no existe). Para controles de acceso. */

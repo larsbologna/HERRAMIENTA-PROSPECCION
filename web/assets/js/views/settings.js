@@ -54,39 +54,50 @@ function infoForm(s) {
     </form>`;
 }
 
-function pricesForm(prices, services) {
-  const months = prices?.mesesContrato ?? 12;
+/** Fila editable de un servicio (de la herramienta o propio). */
+function serviceRow(c, defaults) {
+  const def = defaults.find((d) => d.id === c.id);
+  return `<div class="svc-row ${c.active === false ? 'off' : ''}" data-svc="${esc(c.id)}" data-builtin="${c.builtIn ? '1' : ''}" data-active="${c.active === false ? '' : '1'}">
+    <div class="svc-fields">
+      <input class="input" data-k="name" maxlength="60" value="${esc(c.name)}" placeholder="${esc(def?.name ?? 'Nombre del servicio')}" aria-label="Nombre del servicio" ${c.builtIn ? '' : 'required'}>
+      <input class="input svc-desc" data-k="description" maxlength="200" value="${esc(c.description ?? '')}" placeholder="${esc(def?.description ?? 'Descripción breve (opcional)')}" aria-label="Descripción">
+    </div>
+    <label class="svc-price">Pago inicial<input class="input num right" data-k="setup" type="number" min="0" step="1000" value="${c.setup ?? ''}" placeholder="Sin precio"></label>
+    <label class="svc-price">Abono mensual<input class="input num right" data-k="monthly" type="number" min="0" step="1000" value="${c.monthly ?? ''}" placeholder="Sin abono"></label>
+    <div class="svc-act">
+      <span class="badge svc-tag">${c.builtIn ? 'De la herramienta' : 'Propio'}</span>
+      ${c.builtIn
+        ? `<button type="button" class="btn btn-sm btn-ghost" data-toggle>${c.active === false ? `${icon('refresh')}Restaurar` : `${icon('trash')}Quitar`}</button>`
+        : `<button type="button" class="btn btn-sm btn-ghost" data-remove>${icon('trash')}Eliminar</button>`}
+    </div>
+  </div>`;
+}
+
+function servicesForm(prices, catalog, defaults) {
   const pack = prices?.descuentoPaquete ?? { minimoServicios: 3, porcentaje: 0 };
   return `
-    <h2>Editar precios</h2>
-    <p>Al guardar se recalculan el presupuesto y el valor potencial de <b>todos</b> los prospectos.</p>
+    <h2>Servicios y precios</h2>
+    <p>Agregá tus propios servicios, quitá los que no ofrecés y ajustá nombres y precios. Al guardar se recalculan los presupuestos de <b>todos</b> los prospectos.</p>
     <form class="stack" id="pform" style="gap:14px">
       <div class="grid grid-3" style="gap:10px">
         <label class="field">Moneda<input class="input" name="moneda" maxlength="3" value="${esc(prices?.moneda ?? 'ARS')}" required></label>
-        <label class="field">Meses de contrato<input class="input num" name="mesesContrato" type="number" min="0" max="60" value="${months}" required></label>
         <label class="field">Descuento por paquete (%)<input class="input num" name="porcentaje" type="number" min="0" max="90" value="${pack.porcentaje}"></label>
+        <label class="field">Se aplica desde cuántos servicios<input class="input num" name="minimoServicios" type="number" min="1" max="20" value="${pack.minimoServicios}"></label>
       </div>
-      <label class="field">Se aplica desde cuántos servicios<input class="input num" name="minimoServicios" type="number" min="1" max="20" value="${pack.minimoServicios}" style="max-width:160px"></label>
-      <div class="table-wrap" style="border:0;background:transparent"><table class="table price-edit">
-        <thead><tr><th>Servicio</th><th class="right">Pago inicial</th><th class="right">Abono mensual</th><th class="right">Total contrato</th></tr></thead>
-        <tbody>${services.map((sv) => {
-          const p = prices?.servicios?.[sv.id];
-          return `<tr data-svc="${esc(sv.id)}" style="cursor:default"><td class="name">${esc(sv.name)}</td>
-            <td><input class="input num right" data-k="pagoInicial" type="number" min="0" step="1000" value="${p ? p.pagoInicial : ''}" placeholder="Sin precio" aria-label="Pago inicial de ${esc(sv.name)}"></td>
-            <td><input class="input num right" data-k="mensual" type="number" min="0" step="1000" value="${p ? p.mensual : ''}" placeholder="Sin precio" aria-label="Abono mensual de ${esc(sv.name)}"></td>
-            <td class="right num" data-total></td></tr>`;
-        }).join('')}</tbody></table></div>
-      <p class="faint" style="font-size:12px;margin:0">Dejá un servicio vacío para no incluirlo en los presupuestos.</p>
+      <div class="svc-list" id="svc-list">${catalog.map((c) => serviceRow(c, defaults)).join('')}</div>
+      <div><button type="button" class="btn btn-sm" id="svc-add">${icon('plus')}Agregar servicio</button></div>
+      <p class="faint" style="font-size:12px;margin:0">Los servicios de la herramienta los recomienda el análisis según los problemas detectados. Los servicios propios se suman a mano en el presupuesto de cada prospecto ("Personalizar"). Un servicio quitado no se recomienda, no se presupuesta y no se menciona en los mensajes.</p>
       <div class="error-text" id="perr"></div>
-      <div class="btn-row" style="justify-content:flex-end"><button type="button" class="btn" data-close>Cancelar</button><button class="btn btn-primary">${icon('check')}Guardar precios</button></div>
+      <div class="btn-row" style="justify-content:flex-end"><button type="button" class="btn" data-close>Cancelar</button><button class="btn btn-primary">${icon('check')}Guardar servicios y precios</button></div>
     </form>`;
 }
+
+const slug = (t) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || 'servicio';
 
 async function general(box, ctx) {
   const s = await api.settings();
   const prices = s.prices;
   const st = s.settings;
-  const months = prices?.mesesContrato ?? 12;
   box.innerHTML = `
     <div class="grid grid-2">
       <section class="card">
@@ -105,20 +116,18 @@ async function general(box, ctx) {
         <a class="btn" href="/api/export" download>${icon('download')}Descargar copia (JSON)</a>
       </section>
       <section class="card span-2">
-        <div class="card-head"><h2>Precios</h2>
-          <div class="row" style="gap:10px;align-items:center"><span class="sub">Moneda: ${esc(prices?.moneda ?? '—')} · ${months} meses de contrato${prices?.descuentoPaquete ? ` · ${prices.descuentoPaquete.porcentaje}% de descuento desde ${prices.descuentoPaquete.minimoServicios} servicios` : ''}</span>
-          <button class="btn btn-sm btn-primary" id="edit-prices">${icon('edit')}Editar precios</button></div></div>
-        ${s.priceError ? `<div class="banner">precios.json tiene un error y se siguen usando los últimos precios válidos: ${esc(s.priceError)}. Podés corregirlo con "Editar precios".</div>` : ''}
-        ${prices ? `<div class="table-wrap" style="border:0;background:transparent"><table class="table" style="min-width:520px">
-          <thead><tr><th>Servicio</th><th class="right">Pago inicial</th><th class="right">Mensual</th><th class="right">Total ${months} meses</th></tr></thead>
-          <tbody>${s.services.map((sv) => {
-            const p = prices.servicios?.[sv.id];
-            return `<tr style="cursor:default"><td class="name">${esc(sv.name)}</td>
-              <td class="right num">${p ? money(p.pagoInicial) : '<span class="faint">Sin precio</span>'}</td>
-              <td class="right num">${p ? money(p.mensual) : '—'}</td>
-              <td class="right num">${p ? money(p.pagoInicial + p.mensual * months) : '—'}</td></tr>`;
-          }).join('')}</tbody></table></div>` : ''}
-        <p class="muted" style="font-size:13px;margin-bottom:0">Al guardar, el presupuesto y el valor potencial de todos los prospectos se recalculan solos.</p>
+        <div class="card-head"><h2>Servicios y precios</h2>
+          <div class="row" style="gap:10px;align-items:center;flex-wrap:wrap"><span class="sub">Moneda: ${esc(prices?.moneda ?? '—')}${prices?.descuentoPaquete ? ` · ${prices.descuentoPaquete.porcentaje}% de descuento desde ${prices.descuentoPaquete.minimoServicios} servicios` : ''}</span>
+          <button class="btn btn-sm btn-primary" id="edit-prices">${icon('edit')}Editar servicios y precios</button></div></div>
+        ${s.priceError ? `<div class="banner">precios.json tiene un error y se siguen usando los últimos precios válidos: ${esc(s.priceError)}. Podés corregirlo con "Editar servicios y precios".</div>` : ''}
+        <div class="table-wrap" style="border:0;background:transparent"><table class="table" style="min-width:520px">
+          <thead><tr><th>Servicio</th><th class="right">Pago inicial</th><th class="right">Abono mensual</th></tr></thead>
+          <tbody>${(s.catalog ?? []).map((c) => `<tr style="cursor:default" class="${c.active ? '' : 'svc-off'}">
+              <td><div class="name">${esc(c.name)} ${c.builtIn ? '' : '<span class="badge svc-tag">Propio</span>'} ${c.active ? '' : '<span class="badge svc-tag off">Quitado</span>'}</div>
+                ${c.description ? `<div class="sub" style="max-width:520px;white-space:normal">${esc(c.description)}</div>` : ''}</td>
+              <td class="right num">${c.setup != null ? money(c.setup) : '<span class="faint">Sin precio</span>'}</td>
+              <td class="right num">${c.monthly != null ? `${money(c.monthly)}/mes` : '—'}</td></tr>`).join('')}</tbody></table></div>
+        <p class="muted" style="font-size:13px;margin-bottom:0">Los presupuestos muestran pago inicial + abono mensual. Al guardar, se recalculan los de todos los prospectos.</p>
       </section>
     </div>`;
 
@@ -143,31 +152,57 @@ async function general(box, ctx) {
   };
 
   $('#edit-prices', box).onclick = () => {
-    const m = modal(pricesForm(prices, s.services));
+    const m = modal(servicesForm(prices, s.catalog ?? [], s.services ?? []));
     m.root.querySelector('.modal').classList.add('modal-wide');
     const form = $('#pform', m.root);
-    const totals = () => {
-      const months = Number(form.mesesContrato.value) || 0;
-      for (const tr of $$('[data-svc]', form)) {
-        const [a, b] = ['pagoInicial', 'mensual'].map((k) => $(`[data-k="${k}"]`, tr).value);
-        $('[data-total]', tr).textContent = a === '' && b === '' ? '—' : money((Number(a) || 0) + (Number(b) || 0) * months);
-      }
+    const list = $('#svc-list', m.root);
+    const bindRow = (row) => {
+      $('[data-toggle]', row)?.addEventListener('click', () => {
+        const active = !row.dataset.active;
+        row.dataset.active = active ? '1' : '';
+        row.classList.toggle('off', !active);
+        $('[data-toggle]', row).innerHTML = active ? `${icon('trash')}Quitar` : `${icon('refresh')}Restaurar`;
+      });
+      $('[data-remove]', row)?.addEventListener('click', () => row.remove());
     };
-    form.addEventListener('input', totals);
-    totals();
+    for (const row of $$('.svc-row', list)) bindRow(row);
+    $('#svc-add', m.root).onclick = () => {
+      list.insertAdjacentHTML('beforeend', serviceRow({ id: '', name: '', description: '', builtIn: false, active: true }, []));
+      const row = list.lastElementChild;
+      bindRow(row);
+      $('[data-k="name"]', row).focus();
+    };
     $('[data-close]', m.root).onclick = () => m.close();
     form.onsubmit = async (e) => {
       e.preventDefault();
       const servicios = {};
-      for (const tr of $$('[data-svc]', form)) {
-        const a = $('[data-k="pagoInicial"]', tr).value;
-        const b = $('[data-k="mensual"]', tr).value;
-        if (a === '' && b === '') continue;
-        servicios[tr.dataset.svc] = { pagoInicial: Number(a || 0), mensual: Number(b || 0) };
+      const used = new Set($$('.svc-row', list).map((r) => r.dataset.svc).filter(Boolean));
+      for (const row of $$('.svc-row', list)) {
+        const val = (k) => $(`[data-k="${k}"]`, row).value.trim();
+        const builtIn = !!row.dataset.builtin;
+        const active = !!row.dataset.active;
+        const name = val('name');
+        const description = val('description');
+        const setup = val('setup');
+        const monthly = val('monthly');
+        let id = row.dataset.svc;
+        if (!builtIn && !id) {
+          if (!name) continue; // fila nueva vacía
+          id = `custom-${slug(name)}`;
+          for (let n = 2; used.has(id); n++) id = `custom-${slug(name)}-${n}`;
+          used.add(id);
+        }
+        const def = (s.services ?? []).find((d) => d.id === id);
+        // Servicio de la herramienta, activo y sin precio ni cambios: queda "sin precio" (no se presupuesta).
+        if (builtIn && active && setup === '' && monthly === '' && (!name || name === def?.name) && (!description || description === def?.description)) continue;
+        const entry = { pagoInicial: Number(setup || 0), mensual: Number(monthly || 0) };
+        if (name && (!builtIn || name !== def?.name)) entry.nombre = name;
+        if (description && (!builtIn || description !== def?.description)) entry.descripcion = description;
+        if (!active) entry.activo = false;
+        servicios[id] = entry;
       }
       const body = {
         moneda: form.moneda.value,
-        mesesContrato: Number(form.mesesContrato.value),
         servicios,
         descuentoPaquete: { porcentaje: Number(form.porcentaje.value || 0), minimoServicios: Number(form.minimoServicios.value || 1) },
       };
@@ -176,7 +211,7 @@ async function general(box, ctx) {
       try {
         const r = await api.savePrices(body);
         m.close();
-        toast(`Precios guardados${r.recalculated ? ` · ${r.recalculated} prospecto${r.recalculated === 1 ? '' : 's'} recalculado${r.recalculated === 1 ? '' : 's'}` : ''}`);
+        toast(`Servicios y precios guardados${r.recalculated ? ` · ${r.recalculated} prospecto${r.recalculated === 1 ? '' : 's'} recalculado${r.recalculated === 1 ? '' : 's'}` : ''}`);
         general(box, ctx);
       } catch (err) {
         $('#perr', m.root).textContent = err.message;

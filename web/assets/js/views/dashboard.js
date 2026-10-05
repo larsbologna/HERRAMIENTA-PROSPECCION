@@ -67,7 +67,7 @@ export async function render(main, _params, ctx) {
       ${kpi('Respondieron', number(k.responded), k.contacted ? `${pct((k.responded / k.contacted) * 100)} de los contactados` : '', 'message')}
       ${kpi('Reuniones agendadas', number(k.meetings), '', 'calendar')}
       ${kpi('Clientes cerrados', number(k.clients), k.contacted ? `${pct((k.clients / k.contacted) * 100)} de conversión` : '', 'check')}
-      ${kpi('Valor potencial', moneyShort(k.potentialValue), 'Pipeline abierto', 'money', true)}
+      ${kpi('Valor potencial', moneyShort(k.potentialValue), 'Pago inicial · pipeline abierto', 'money', true)}
       ${kpi('Valor cerrado', moneyShort(k.closedValue), `${number(k.clients)} cliente${k.clients === 1 ? '' : 's'}`, 'star', true)}
     </div>
 
