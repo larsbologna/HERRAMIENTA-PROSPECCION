@@ -33,6 +33,15 @@ server {
         proxy_send_timeout 300s;
     }
 
+    # Generador de Prospectos: también en streaming y puede tardar varios minutos (GENERATOR_TIMEOUT_MS).
+    location = /api/generador/generar {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 1000s;
+        proxy_send_timeout 1000s;
+    }
+
     # Login: límite adicional por IP en Nginx (la app ya bloquea tras 5 intentos fallidos).
     location = /api/auth/login {
         limit_req zone=prospeccion_login burst=10 nodelay;

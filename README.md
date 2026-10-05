@@ -48,6 +48,7 @@ Para cerrarla, cerrá la ventana negra. Tus datos quedan guardados.
 |---|---|
 | **Dashboard** | Alerta de seguimientos pendientes y tu actividad (asignados, seguimientos, reuniones, conversión personal). Prospectos analizados, sin contactar, contactados, respondieron, reuniones, clientes, valor potencial y cerrado. Gráficos de prospectos por mes, valor acumulado, conversiones y estado comercial. Lista de "para contactar primero". |
 | **Prospectos** | Tabla con búsqueda, filtros por estado, rubro, score y vendedor, próximo contacto, asignación masiva (admin) y orden por cualquier columna. |
+| **Generador** | **Generador de Prospectos**: negocios nuevos de Google Maps por rubro, zona y cantidad, ordenados por oportunidad, con seguimiento comercial y estadísticas. Ver abajo. |
 | **Pipeline** | Kanban: Sin contactar → Contactado → Respondió → Reunión agendada → Propuesta enviada → Cliente / Perdido. Arrastrá las tarjetas; se guarda solo. |
 | **Auditorías** | Nuevo análisis y registro de todos los análisis (incluidos los reanálisis). |
 | **Perfil del prospecto** | Responsable, próximo contacto, score por área, datos del negocio, problemas (impacto, motivo, servicio, beneficio), servicios recomendados, presupuesto, potencial económico, mensajes de WhatsApp, notas internas e historial. |
@@ -62,6 +63,37 @@ Para cerrarla, cerrá la ventana negra. Tus datos quedan guardados.
 4. Al cerrar, pasalo a **Cliente** y ajustá el **valor cerrado** si acordaste otro precio.
 
 Si analizás de nuevo un negocio (mismo nombre y dirección), se **actualiza** el prospecto: conserva estado, notas e historial, y suma una auditoría nueva.
+
+---
+
+## Generador de Prospectos
+
+Sección **Generador**: indicá **rubro** (ej.: Barberías), **ciudad o zona** (ej.: Quilmes) y **cantidad** (1 a 50), y tocá **Generar**.
+
+- Busca negocios reales en Google Maps: recorre **todas** las páginas de resultados (desplazando la lista) y, si no alcanza, prueba variantes de la búsqueda ("barberías en Quilmes", "barbería en Quilmes", "barberías Quilmes", "barbería cerca de Quilmes"), hasta completar la cantidad o agotar los resultados.
+- **Nunca repite un negocio**: todo lo entregado queda guardado en la base (`data/prospeccion.db`) y no se vuelve a mostrar, ni a vos ni a otro usuario, aunque pasen días. Tampoco entrega negocios que ya analizaste en el CRM.
+- **Duplicados** (criterio conservador: ante la duda, no se repite): Place ID → identificador de la ficha en la URL de Maps → nombre + dirección; además mismo teléfono, mismo sitio web propio, mismo nombre en la misma calle y altura, o mismo nombre con una ficha sin dirección. Dos sucursales reales (otra dirección y otro teléfono) se tratan como negocios distintos.
+- Descarta los negocios **cerrados permanentemente** y los que **no están en la zona** pedida (la dirección tiene que mencionarla).
+- **Nunca inventa ni completa**: si pedís 20 y hay 13 nuevos, entrega 13 y avisa *"Se encontraron 13 prospectos nuevos. No quedan más negocios sin analizar para este rubro y ubicación."*
+- **Score de oportunidad (0–100)**, de mayor a menor. Cada punto suma solo si la carencia está verificada en la ficha:
+
+  | Carencia | Puntos |
+  |---|---|
+  | Sin sitio web | +30 |
+  | Ficha sin reclamar | +25 |
+  | Sin WhatsApp visible (solo se verifica si no tiene web) | +20 |
+  | Sin reservas/turnos online (+8 en rubros donde no se reserva) | +20 |
+  | Sin teléfono | +15 |
+  | Horarios incompletos o sin horarios | +10 |
+  | Sin publicaciones | +10 |
+  | Pocas reseñas (menos de 20) | +10 |
+  | Calificación menor a 4 | +5 |
+
+  Los pesos están en `src/generator/score.ts` (`SCORE_WEIGHTS`).
+- **Analizar**: abre el análisis completo de siempre (mismo informe comercial, mensajes y presupuesto). Al terminar, el prospecto queda vinculado y muestra **Ver análisis**.
+- **Seguimiento**: Nuevo → Contactado → Interesado (respondió) → Llamada agendada → Propuesta enviada → Cliente ganado / Perdido.
+- **Estadísticas**: encontrados, pendientes, contactados, interesados, propuestas enviadas, ganados, perdidos y tasa de cierre (ganados sobre contactados).
+- Cada vendedor ve lo que generó; el administrador ve todo el equipo. Se puede generar de a una búsqueda por vez. Tiempo máximo por búsqueda: `GENERATOR_TIMEOUT_MS` (15 minutos por defecto).
 
 ---
 
@@ -171,7 +203,7 @@ web/                       Interfaz (SPA sin build)
         ├── api.js         Cliente de la API
         ├── charts.js      Gráficos SVG
         ├── ui.js          Formato, íconos, modales, avisos
-        └── views/         auth, dashboard, prospects, pipeline, audits, prospect, metrics, settings
+        └── views/         auth, dashboard, prospects, generator, pipeline, audits, prospect, metrics, settings
 src/
 ├── server.ts              Arranque (127.0.0.1 por defecto; HOST/TRUST_PROXY para VPS)
 ├── usersCli.ts            Gestión de usuarios por terminal
@@ -180,6 +212,7 @@ src/
 ├── crm/                   Repositorio SQLite, estados, estadísticas, importación de la V1
 ├── db/                    Conexión node:sqlite y migraciones versionadas
 ├── messages/              Mensajes de WhatsApp (primer contacto, corto, seguimiento)
+├── generator/             Generador de Prospectos: búsqueda en Maps, duplicados, score y persistencia
 ├── analyzer.ts            Análisis completo (Maps → web → auditoría → propuesta → presupuesto)
 ├── scraper/               Playwright: Google Maps y sitio web          ┐
 ├── auditor/               Reglas de auditoría por área y rubro          │ lógica validada
@@ -209,11 +242,15 @@ Todas las rutas requieren sesión salvo las de `/api/auth` (login, estado, alta 
 | GET | `/api/dashboard` | Datos agregados (del vendedor o globales) y KPIs personales |
 | GET | `/api/metrics`, `/api/audits`, `/api/activity` | Métricas, auditorías y registro de actividad (admin) |
 | GET / POST / PATCH | `/api/users`, `/api/users/:id` | Gestión de usuarios (admin) |
+| POST | `/api/generador/generar` | Generador de Prospectos: `{rubro, zona, cantidad}` (progreso en streaming NDJSON) |
+| GET / PATCH | `/api/generador`, `/api/generador/:id` | Prospectos generados (`estado`, `q`) · cambiar estado comercial |
+| GET | `/api/generador/estadisticas`, `/api/generador/busquedas` | Estadísticas del seguimiento · búsquedas realizadas |
+| POST | `/api/generador/:id/vincular` | Vincula el análisis completo (prospecto del CRM) |
 | GET / PUT | `/api/settings` | Configuración y precios (admin) |
 | GET | `/api/export` | Copia de seguridad JSON (admin) |
 
 ```bash
-npm test           # 59 tests: unitarios, presupuesto, CRM, migraciones, autenticación y roles, API, mensajes, diagnóstico, confiabilidad (fichas trampa) y e2e con Chromium
+npm test           # 83 tests: unitarios, presupuesto, CRM, migraciones, autenticación y roles, API, mensajes, diagnóstico, confiabilidad, generador (dedupe, score, persistencia, API e interfaz), layout y e2e con Chromium
 npm run typecheck
 ```
 

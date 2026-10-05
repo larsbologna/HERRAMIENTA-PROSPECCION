@@ -46,4 +46,6 @@ export const config = {
   },
   /** Tiempo máximo de un análisis completo: pasado este tiempo se cancela. */
   analysisTimeoutMs: Number(env('ANALYSIS_TIMEOUT_MS', '180000')),
+  /** Tiempo máximo de una generación de prospectos (Generador): al cumplirse devuelve lo encontrado. */
+  generatorTimeoutMs: Number(env('GENERATOR_TIMEOUT_MS', '900000')),
 } as const;

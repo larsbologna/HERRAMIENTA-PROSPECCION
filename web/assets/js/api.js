@@ -45,32 +45,45 @@ export const api = {
   setFollowup: (id, status) => request('PATCH', `/api/followups/${encodeURIComponent(id)}`, { status }),
 
   /** Análisis con progreso: onEvent recibe cada línea del stream. Devuelve el evento final. */
-  async analyze(url, onEvent) {
-    const res = await fetch('/api/analizar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }) });
-    if (res.status === 401) window.dispatchEvent(new CustomEvent('auth:expired'));
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data.error || `Error ${res.status}`);
-    }
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let last = null;
-    for (;;) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop();
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        const ev = JSON.parse(line);
-        onEvent?.(ev);
-        if (ev.tipo === 'resultado' || ev.tipo === 'error') last = ev;
-      }
-    }
-    if (!last) throw new Error('La conexión con la herramienta se interrumpió. Probá de nuevo.');
-    if (last.tipo === 'error') throw new Error(last.mensaje);
-    return last;
+  analyze(url, onEvent) {
+    return streamNdjson('/api/analizar', { url }, onEvent);
   },
+
+  // Generador de Prospectos
+  generate: (body, onEvent) => streamNdjson('/api/generador/generar', body, onEvent),
+  generated: (params = {}) => request('GET', '/api/generador?' + new URLSearchParams(Object.entries(params).filter(([, v]) => v !== '' && v != null))),
+  generatorStats: (params = {}) => request('GET', '/api/generador/estadisticas?' + new URLSearchParams(Object.entries(params).filter(([, v]) => v !== '' && v != null))),
+  generatorRuns: () => request('GET', '/api/generador/busquedas'),
+  setGeneratedStatus: (id, status) => request('PATCH', `/api/generador/${encodeURIComponent(id)}`, { status }),
+  linkGenerated: (id, prospectId) => request('POST', `/api/generador/${encodeURIComponent(id)}/vincular`, { prospectId }),
 };
+
+/** POST con respuesta en streaming NDJSON (progreso en vivo). Devuelve el evento final (resultado). */
+async function streamNdjson(url, body, onEvent) {
+  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  if (res.status === 401) window.dispatchEvent(new CustomEvent('auth:expired'));
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `Error ${res.status}`);
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let last = null;
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop();
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      const ev = JSON.parse(line);
+      onEvent?.(ev);
+      if (ev.tipo === 'resultado' || ev.tipo === 'error') last = ev;
+    }
+  }
+  if (!last) throw new Error('La conexión con la herramienta se interrumpió. Probá de nuevo.');
+  if (last.tipo === 'error') throw new Error(last.mensaje);
+  return last;
+}

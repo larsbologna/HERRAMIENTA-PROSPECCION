@@ -47,6 +47,7 @@ export const ACTIVITY_TYPES = {
   logout: 'Cerró sesión',
   usuario: 'Gestión de usuarios',
   configuracion: 'Cambio de configuración',
+  generador: 'Generador de prospectos',
 } as const;
 
 export type ActivityType = keyof typeof ACTIVITY_TYPES;

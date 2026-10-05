@@ -536,3 +536,48 @@ table.table.dq { min-width: 640px; }
 .msg-hint { font-size: 12px; margin: 6px 0 10px; }
 .wa-text.flash { animation: msgflash .6s ease; }
 @keyframes msgflash { from { border-color: var(--green); box-shadow: 0 0 0 3px rgba(93, 214, 44, .25); } to { border-color: var(--line); box-shadow: none; } }
+
+/* =====================================================================
+   Generador de Prospectos
+   ===================================================================== */
+.gen-form { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 2fr) 110px auto; gap: 12px; align-items: end; }
+.gen-form .btn { height: 42px; }
+.gen-help { font-size: 12px; margin: 12px 0 0; }
+.gen-form-card .progress { margin-top: 16px; }
+.gen-alert { margin: 16px 0 0; }
+.gen-stats { margin-top: 16px; }
+.gen-new { background: var(--green-soft); color: var(--green); }
+.gen-list { display: grid; gap: 10px; }
+.gen-item { display: grid; grid-template-columns: 96px minmax(0, 1fr) 190px; gap: 14px; align-items: start; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--r); background: rgba(248, 248, 248, .02); }
+.gen-item:hover { border-color: var(--line-2); }
+.gen-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.gen-name { font-size: 14.5px; overflow-wrap: anywhere; }
+.gen-item .sub { font-size: 12px; color: var(--text-3); margin-top: 2px; }
+.gen-facts { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 8px; font-size: 13px; color: var(--text-2); }
+.gen-fact { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.gen-fact svg { width: 13px; height: 13px; flex: none; color: var(--text-3); }
+.gen-actions { display: grid; gap: 8px; }
+.gen-actions .btn { justify-content: center; }
+.gen-reasons { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.gen-reason { font-size: 11px; padding: 2px 7px; border-radius: 999px; background: rgba(248, 248, 248, .05); border: 1px solid var(--line); color: var(--text-2); white-space: nowrap; }
+.gen-link { color: var(--text-2); text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; }
+.gen-status { width: 100%; height: 34px; }
+@media (max-width: 900px) {
+  .gen-form { grid-template-columns: 1fr 1fr; }
+  .gen-form .gen-qty { grid-column: auto; }
+}
+@media (max-width: 760px) {
+  .gen-item { grid-template-columns: 1fr; gap: 10px; }
+  .gen-actions { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 560px) {
+  .gen-form { grid-template-columns: 1fr; }
+}
+@media (max-width: 900px) {
+  /* Barra superior móvil: el menú se desplaza si no entra; cuenta y cerrar sesión quedan siempre visibles. */
+  .sidebar { overflow: visible; }
+  .nav { flex: 1 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+  .nav::-webkit-scrollbar { display: none; }
+  .nav a { padding: 8px; flex: none; }
+  .sidebar-foot { flex: none; }
+}

@@ -142,6 +142,62 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX idx_activities_prospect ON activities(prospect_id, created_at);
   CREATE INDEX idx_activities_user ON activities(user_id, created_at);
   `,
+  // 3 · Generador de Prospectos: búsquedas y negocios entregados (historial que evita repetir)
+  `
+  CREATE TABLE generator_runs (
+    id           TEXT PRIMARY KEY,
+    user_id      TEXT REFERENCES users(id) ON DELETE SET NULL,
+    rubro        TEXT NOT NULL,
+    zona         TEXT NOT NULL,
+    requested    INTEGER NOT NULL,
+    found        INTEGER NOT NULL DEFAULT 0,
+    exhausted    INTEGER NOT NULL DEFAULT 0,
+    stats_json   TEXT NOT NULL DEFAULT '{}',
+    message      TEXT,
+    created_at   TEXT NOT NULL,
+    finished_at  TEXT
+  );
+  CREATE TABLE generated_prospects (
+    id                TEXT PRIMARY KEY,
+    run_id            TEXT REFERENCES generator_runs(id) ON DELETE SET NULL,
+    user_id           TEXT REFERENCES users(id) ON DELETE SET NULL,
+    name              TEXT NOT NULL,
+    address           TEXT,
+    phone             TEXT,
+    website           TEXT,
+    category          TEXT,
+    rating            REAL,
+    review_count      INTEGER,
+    maps_url          TEXT NOT NULL,
+    place_id          TEXT,
+    feature_id        TEXT,
+    url_key           TEXT,
+    name_key          TEXT,
+    address_key       TEXT,
+    street_key        TEXT,
+    phone_key         TEXT,
+    website_key       TEXT,
+    rubro             TEXT NOT NULL,
+    zona              TEXT NOT NULL,
+    score             INTEGER NOT NULL,
+    score_points      INTEGER NOT NULL DEFAULT 0,
+    reasons_json      TEXT NOT NULL DEFAULT '[]',
+    unverified_json   TEXT NOT NULL DEFAULT '[]',
+    facts_json        TEXT NOT NULL DEFAULT '{}',
+    status            TEXT NOT NULL DEFAULT 'nuevo'
+                      CHECK (status IN ('nuevo','contactado','interesado','llamada','propuesta','ganado','perdido')),
+    max_stage         INTEGER NOT NULL DEFAULT 0,
+    prospect_id       TEXT REFERENCES prospects(id) ON DELETE SET NULL,
+    discovered_at     TEXT NOT NULL,
+    updated_at        TEXT NOT NULL,
+    status_changed_at TEXT
+  );
+  CREATE UNIQUE INDEX ux_generated_place ON generated_prospects(place_id) WHERE place_id IS NOT NULL;
+  CREATE UNIQUE INDEX ux_generated_feature ON generated_prospects(feature_id) WHERE feature_id IS NOT NULL;
+  CREATE INDEX idx_generated_user ON generated_prospects(user_id, score DESC);
+  CREATE INDEX idx_generated_status ON generated_prospects(status);
+  CREATE INDEX idx_generated_run ON generated_prospects(run_id);
+  `,
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;
