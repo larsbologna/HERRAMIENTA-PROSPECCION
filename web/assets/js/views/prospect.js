@@ -265,7 +265,7 @@ export async function render(main, { id }, ctx) {
           <nav class="subnav"><a href="#resumen">Resumen</a><a href="#problemas">Problemas (${p.problems.length})</a><a href="#servicios">Servicios</a><a href="#presupuesto">Presupuesto</a><a href="#datos">Confiabilidad</a></nav>
           <div class="stack">${summaryCard(p)}${problemsCard(p)}${servicesCard(p)}${budgetCard(p)}${reliabilityCard(p)}</div>
         </div>
-        <div class="stack">${followupsCard(p)}${valueCard(p)}${messagesCard(p)}${notesCard(p)}${historyCard(p, ctx.meta.activityTypes)}</div>
+        <aside class="profile-side" aria-label="Seguimiento y contacto">${followupsCard(p)}${valueCard(p)}${messagesCard(p)}${notesCard(p)}${historyCard(p, ctx.meta.activityTypes)}</aside>
       </div>`;
     bind();
   };

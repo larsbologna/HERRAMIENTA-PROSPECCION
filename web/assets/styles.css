@@ -138,7 +138,7 @@ label.field { display: grid; gap: 6px; font-size: 12px; color: var(--text-2); fo
 .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .span-2 { grid-column: span 2; }
-.stack { display: grid; gap: 16px; align-content: start; }
+.stack { display: grid; gap: 16px; align-content: start; grid-template-columns: minmax(0, 1fr); }
 
 /* KPIs */
 .kpi { position: relative; overflow: hidden; padding: 18px 20px; }
@@ -227,8 +227,20 @@ table.table { width: 100%; border-collapse: collapse; min-width: 860px; }
 .chip { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 8px; background: rgba(248, 248, 248, .04); border: 1px solid var(--line); font-size: 12.5px; color: var(--text-2); }
 .chip svg { width: 14px; height: 14px; }
 a.chip:hover { color: var(--text); border-color: var(--line-2); }
-.profile { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 16px; align-items: start; }
-.subnav { display: flex; gap: 4px; margin-bottom: 16px; position: sticky; top: 0; z-index: 5; padding: 8px 0; background: linear-gradient(var(--bg) 70%, transparent); }
+/* Perfil: columna principal (auditoría) + columna lateral (seguimiento, valor, mensaje, notas, historial).
+   Con poco ancho la lateral baja debajo de la principal; nunca se encima. */
+.profile { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
+.profile > * { min-width: 0; }
+.profile-side { display: grid; gap: 16px; align-content: start; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); }
+@media (min-width: 1320px) {
+  .profile { grid-template-columns: minmax(0, 1fr) clamp(320px, 24vw, 400px); }
+  .profile-side { grid-template-columns: minmax(0, 1fr); }
+}
+.subnav { display: flex; gap: 4px; margin-bottom: 16px; position: sticky; top: 0; z-index: 5; padding: 8px 0; background: linear-gradient(var(--bg) 70%, transparent); overflow-x: auto; scrollbar-width: none; }
+.subnav::-webkit-scrollbar { display: none; }
+.subnav a { white-space: nowrap; }
+/* Al saltar a una sección, el título no queda tapado por el subnav fijo. */
+.profile .card { scroll-margin-top: 60px; }
 .subnav a { padding: 6px 12px; border-radius: 8px; color: var(--text-2); font-weight: 500; font-size: 13px; }
 .subnav a:hover { background: var(--hover); color: var(--text); }
 
@@ -376,7 +388,6 @@ code { font-size: 12px; background: rgba(248, 248, 248, .07); padding: 2px 6px; 
 /* ---------------- Responsive ---------------- */
 @media (max-width: 1200px) {
   .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .profile { grid-template-columns: 1fr; }
 }
 @media (max-width: 900px) {
   .app { grid-template-columns: 1fr; }
@@ -476,3 +487,48 @@ code { font-size: 12px; background: rgba(248, 248, 248, .07); padding: 2px 6px; 
 .dq-unverified ul { margin: 6px 0 0; padding-left: 18px; font-size: 13px; }
 .basis { display: flex; gap: 6px; align-items: flex-start; flex-wrap: wrap; margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line); font-size: 12px; color: var(--text-2); }
 .basis svg { color: var(--green); margin-top: 2px; flex: none; }
+
+/* Edición de precios y datos del negocio */
+.modal.modal-wide { width: min(800px, 100%); max-height: calc(100vh - 40px); overflow-y: auto; }
+table.table.price-edit { min-width: 0; }
+.price-edit th, .price-edit td { padding-left: 10px; padding-right: 10px; }
+.price-edit td[data-total] { white-space: nowrap; }
+.price-edit td { padding-top: 6px; padding-bottom: 6px; }
+.price-edit .input { height: 36px; max-width: 130px; margin-left: auto; text-align: right; }
+.preview { margin: 6px 0 0; padding: 12px 14px; border-radius: var(--r); background: rgba(248, 248, 248, .03); border: 1px solid var(--line); font: inherit; font-size: 13px; white-space: pre-wrap; color: var(--text-2); }
+
+/* =====================================================================
+   Layout responsive: nada se sale de su columna
+   ===================================================================== */
+.card { min-width: 0; }
+.card-head { flex-wrap: wrap; }
+.card-head > :last-child { min-width: 0; }
+table.table.dq { min-width: 640px; }
+.kv { flex-wrap: wrap; }
+.kv code { max-width: 100%; }
+.profile-head > div:first-child { min-width: 0; }
+.profile-head h1 { overflow-wrap: anywhere; }
+.chip { max-width: 100%; min-width: 0; }
+.chip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 900px) {
+  /* La barra superior fija en móvil ocuparía el lugar del subnav: el subnav deja de ser fijo. */
+  .subnav { position: static; background: none; }
+  .sidebar-foot { display: flex; align-items: center; margin: 0 0 0 auto; padding: 0; border: 0; }
+  .sidebar-foot .me-text, .sidebar-foot .server-state { display: none; }
+  .profile-head .page-actions { width: 100%; }
+  .profile-head .page-actions .select { flex: 1 1 160px; min-width: 0 !important; }
+}
+/* Seguimientos: fecha y acciones arriba, recordatorio abajo a todo el ancho (no se aplasta en paneles angostos). */
+.fu { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; grid-template-areas: "when hecho del" "what what what"; align-items: center; gap: 4px 8px; }
+.fu .when { grid-area: when; white-space: normal; }
+.fu .what { grid-area: what; overflow-wrap: anywhere; }
+.fu [data-st="hecho"] { grid-area: hecho; }
+.fu [data-st="cancelado"] { grid-area: del; }
+.fu-form .row .input { flex: 1 1 210px; min-width: 0; }
+.fu-form .row .btn { flex: none; }
+.table.dq td { overflow-wrap: anywhere; }
+.profile-side { align-items: start; }
+@media (max-width: 900px) {
+  .sidebar-foot .avatar { display: none; }
+  .sidebar-foot .me { gap: 2px; }
+}

@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { AnalysisResult, AreaScore, Budget, SalesArgument, ServiceRecommendation } from '../domain/types.js';
 import { transaction, type Db } from '../db/database.js';
-import { buildBudget, loadPriceList, type PriceList } from '../proposal/budget.js';
+import { buildBudget, loadPriceList, validatePriceList, writePriceList, type PriceList } from '../proposal/budget.js';
+import { SERVICE_CATALOG } from '../proposal/services.js';
 import {
   ACTIVITY_TYPES,
   MANUAL_ACTIVITY_TYPES,
@@ -147,7 +148,29 @@ export class CrmRepository {
   constructor(
     private readonly db: Db,
     private readonly priceSource: () => PriceList = () => loadPriceList(),
+    private readonly priceWriter: (prices: PriceList) => void = (prices) => writePriceList(prices),
   ) {}
+
+  /**
+   * Guarda precios editados desde Configuración y recalcula al instante presupuesto,
+   * valor potencial y total de todos los prospectos.
+   */
+  updatePrices(input: unknown, actorId: string | null): { prices: PriceList; recalculated: number } {
+    let prices: PriceList;
+    try {
+      prices = validatePriceList(input, Object.keys(SERVICE_CATALOG));
+    } catch (err) {
+      throw new ValidationError((err as Error).message);
+    }
+    // Se conserva la nota del archivo si la edición no trae una.
+    const current = this.prices();
+    if (!prices.nota && current?.nota) prices.nota = current.nota;
+    this.priceWriter(prices);
+    const changed = this.refreshValuesIfPricesChanged();
+    const recalculated = changed ? Number((this.db.prepare('SELECT COUNT(*) AS n FROM prospects').get() as Row).n) : 0;
+    this.logSystem('configuracion', actorId, `Precios actualizados${recalculated ? ` · ${recalculated} prospecto(s) recalculados` : ''}`);
+    return { prices, recalculated };
+  }
 
   // ------------------------------------------------------------------ precios
 
@@ -425,17 +448,34 @@ export class CrmRepository {
       sellerName: this.getSetting('seller_name') ?? defaults.sellerName,
       sellerBusiness: this.getSetting('seller_business') ?? defaults.sellerBusiness,
       sellerCity: this.getSetting('seller_city') ?? defaults.sellerCity,
+      sellerIntro: this.getSetting('seller_intro') ?? defaults.sellerIntro,
+      sellerLink: this.getSetting('seller_link') ?? defaults.sellerLink,
     };
   }
 
   saveSettings(s: Partial<Settings>): void {
-    const map: Record<keyof Settings, string> = { sellerName: 'seller_name', sellerBusiness: 'seller_business', sellerCity: 'seller_city' };
-    for (const [k, key] of Object.entries(map) as Array<[keyof Settings, string]>) {
+    const fields: Record<keyof Settings, [key: string, max: number, label: string]> = {
+      sellerName: ['seller_name', 120, 'Nombre'],
+      sellerBusiness: ['seller_business', 120, 'Nombre del negocio'],
+      sellerCity: ['seller_city', 120, 'Ciudad o zona'],
+      sellerIntro: ['seller_intro', 300, 'Presentación'],
+      sellerLink: ['seller_link', 200, 'Enlace'],
+    };
+    const clean: Array<[string, string]> = [];
+    for (const [k, [key, max, label]] of Object.entries(fields) as Array<[keyof Settings, [string, number, string]]>) {
       const v = s[k];
       if (v === undefined) continue;
-      if (typeof v !== 'string' || v.length > 120) throw new ValidationError('Valor de configuración inválido.');
-      this.setSetting(key, v.trim());
+      if (typeof v !== 'string') throw new ValidationError(`${label}: valor inválido.`);
+      const t = v.trim().replace(/\s+/g, ' ');
+      if (t.length > max) throw new ValidationError(`${label}: máximo ${max} caracteres.`);
+      if (k === 'sellerLink' && t && !/^(https?:\/\/)?[^\s/]+\.[^\s]+$|^@[\w.]{2,30}$/i.test(t)) {
+        throw new ValidationError('Enlace: ingresá una web (tunegocio.com), un enlace de Instagram o un @usuario.');
+      }
+      clean.push([key, t]);
     }
+    transaction(this.db, () => {
+      for (const [key, value] of clean) this.setSetting(key, value);
+    });
   }
 
   // ------------------------------------------------------------------ exportación
