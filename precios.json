@@ -1,15 +1,35 @@
 {
   "moneda": "ARS",
-  "nota": "Precios de ejemplo en pesos argentinos. Editá precios.json con tus valores: el valor potencial de todos los prospectos se recalcula solo.",
-  "mesesContrato": 12,
+  "nota": "Precios de ejemplo en pesos argentinos. Cambialos desde Configuración → Servicios y precios (también podés agregar o quitar servicios).",
   "servicios": {
-    "maps-optimization":  { "pagoInicial": 250000, "mensual": 80000 },
-    "qr-reviews":         { "pagoInicial": 180000, "mensual": 60000 },
-    "website":            { "pagoInicial": 650000, "mensual": 35000 },
-    "whatsapp-ai-bot":    { "pagoInicial": 380000, "mensual": 95000 },
-    "support-automation": { "pagoInicial": 280000, "mensual": 70000 },
-    "booking-system":     { "pagoInicial": 320000, "mensual": 55000 },
-    "admin-dashboard":    { "pagoInicial": 350000, "mensual": 50000 }
+    "maps-optimization": {
+      "pagoInicial": 250000,
+      "mensual": 80000
+    },
+    "qr-reviews": {
+      "pagoInicial": 180000,
+      "mensual": 60000
+    },
+    "website": {
+      "pagoInicial": 650000,
+      "mensual": 35000
+    },
+    "whatsapp-ai-bot": {
+      "pagoInicial": 380000,
+      "mensual": 95000
+    },
+    "support-automation": {
+      "pagoInicial": 280000,
+      "mensual": 70000
+    },
+    "booking-system": {
+      "pagoInicial": 320000,
+      "mensual": 55000
+    },
+    "admin-dashboard": {
+      "pagoInicial": 350000,
+      "mensual": 50000
+    }
   },
   "descuentoPaquete": {
     "minimoServicios": 3,

@@ -131,6 +131,61 @@ test('editar precios y datos del negocio desde Configuración: se aplica al inst
   assert.ok(log.some((a: any) => /Datos del negocio/.test(a.content)));
 });
 
+test('catálogo de servicios (agregar, quitar, renombrar) y presupuesto personalizado por prospecto', async () => {
+  await admin.analyze('https://maps.app.goo.gl/Catalogo Test');
+  const target = (await admin.get('/api/prospects?q=Catalogo')).body.items[0];
+  let d = (await admin.get(`/api/prospects/${target.id}`)).body;
+  assert.ok(!('contractMonths' in d.budget.recommended) || d.budget.recommended.contractMonths === 0, 'sin meses de contrato');
+  assert.equal(d.potentialValue, d.budget.recommended.setupAfterDiscount, 'el valor potencial es el pago inicial');
+  const removed = d.services[0].id;
+  const s = (await admin.get('/api/settings')).body;
+  assert.ok(s.catalog.length >= 7);
+
+  // Quitar el servicio principal, renombrar otro y agregar uno propio.
+  const servicios = { ...s.prices.servicios };
+  servicios[removed] = { ...(servicios[removed] ?? { pagoInicial: 0, mensual: 0 }), activo: false };
+  servicios['custom-logo'] = { pagoInicial: 90000, mensual: 0, nombre: 'Diseño de logo', descripcion: 'Logo y paleta de colores' };
+  const saved = await admin.put('/api/settings/prices', { prices: { moneda: 'ARS', servicios, descuentoPaquete: s.prices.descuentoPaquete } });
+  assert.equal(saved.status, 200, JSON.stringify(saved.body));
+  const cat = (await admin.get('/api/settings')).body.catalog;
+  assert.ok(cat.find((c: any) => c.id === 'custom-logo' && c.name === 'Diseño de logo' && !c.builtIn));
+  assert.equal(cat.find((c: any) => c.id === removed).active, false);
+
+  d = (await admin.get(`/api/prospects/${target.id}`)).body;
+  assert.ok(!d.services.some((x: any) => x.id === removed), 'el servicio quitado ya no se recomienda');
+  assert.ok(!d.budget.recommended.items.some((x: any) => x.id === removed), 'ni se presupuesta');
+  assert.ok(!d.problems.some((a: any) => a.serviceIds.includes(removed)), 'ni figura en los argumentos');
+  assert.ok(d.catalog.some((c: any) => c.id === 'custom-logo') && !d.catalog.some((c: any) => c.id === removed));
+
+  // Presupuesto personalizado con un servicio propio.
+  const other = ['website', 'maps-optimization', 'qr-reviews'].find((x) => x !== removed)!;
+  const custom = await admin.put(`/api/prospects/${target.id}/presupuesto`, { override: { items: [{ id: 'custom-logo', setup: 80000, monthly: 0 }, { id: other, setup: 500000, monthly: 30000 }], discountPct: 10 } });
+  assert.equal(custom.status, 200, JSON.stringify(custom.body));
+  assert.equal(custom.body.budget.custom, true);
+  assert.equal(custom.body.potentialValue, Math.round(580000 * 0.9));
+  assert.equal(custom.body.budget.recommended.monthly, 30000);
+  assert.equal((await admin.put(`/api/prospects/${target.id}/presupuesto`, { override: { items: [{ id: removed, setup: 1, monthly: 1 }] } })).status, 400, 'no se puede usar un servicio quitado');
+  assert.equal((await admin.put(`/api/prospects/${target.id}/presupuesto`, { override: { items: [] } })).status, 400);
+
+  // Reanalizar conserva el presupuesto personalizado; cambiar precios del catálogo no lo pisa.
+  await admin.analyze('https://maps.app.goo.gl/Catalogo Test');
+  assert.equal((await admin.get(`/api/prospects/${target.id}`)).body.potentialValue, Math.round(580000 * 0.9));
+
+  // Un vendedor no puede tocar el presupuesto de un prospecto ajeno.
+  const seller = await loggedClient(app.base, app.users, 'lucia', 'vendedor', 'Lucía');
+  assert.equal((await seller.put(`/api/prospects/${target.id}/presupuesto`, { override: null })).status, 404);
+
+  // Volver al automático.
+  const back = (await admin.put(`/api/prospects/${target.id}/presupuesto`, { override: null })).body;
+  assert.equal(back.budget.custom, undefined);
+  assert.equal(back.budgetOverride, null);
+  const log = (await admin.get(`/api/prospects/${target.id}`)).body.activities.map((a: any) => a.type);
+  assert.ok(log.includes('presupuesto'));
+
+  // Restaurar el catálogo para los tests siguientes.
+  await admin.put('/api/settings/prices', { prices: s.prices });
+});
+
 test('"Otra versión" del mensaje de WhatsApp', async () => {
   const any = (await admin.get('/api/prospects')).body.items[0];
   const base = (await admin.get(`/api/prospects/${any.id}`)).body.messages.primerContacto;

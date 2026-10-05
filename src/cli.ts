@@ -30,10 +30,10 @@ try {
   console.log(`\n${formatSalesArgumentsText(r.profile.name, r.proposal.salesArguments)}`);
   console.log('\n--- PRESUPUESTO ---');
   for (const opt of [r.budget.recommended, r.budget.complete]) {
-    console.log(`\n${opt.label}: ${money(opt.setupAfterDiscount)} inicial + ${money(opt.monthly)}/mes · total ${opt.contractMonths} meses: ${money(opt.total)}`);
+    console.log(`\n${opt.label}: ${money(opt.setupAfterDiscount)} de pago inicial + ${money(opt.monthly)} de abono mensual`);
     for (const i of opt.items) console.log(`  · ${i.name}: ${money(i.setup)} + ${money(i.monthly)}/mes`);
   }
-  console.log(`\nValor potencial: ${money(r.budget.potentialValue)} · Total del proyecto: ${money(r.budget.projectTotal)}`);
+  console.log(`\nValor potencial (pago inicial del plan recomendado): ${money(r.budget.potentialValue)} + ${money(r.budget.recommended.monthly)}/mes`);
   console.log(`\n--- MENSAJE WHATSAPP ---\n${r.proposal.whatsappMessage}`);
 } catch (err) {
   console.error(`✖ ${(err as Error).message}`);

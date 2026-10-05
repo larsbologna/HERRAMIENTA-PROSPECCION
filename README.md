@@ -51,9 +51,9 @@ Para cerrarla, cerrá la ventana negra. Tus datos quedan guardados.
 | **Generador** | **Generador de Prospectos**: negocios nuevos de Google Maps por rubro, zona y cantidad, ordenados por oportunidad, con seguimiento comercial y estadísticas. Ver abajo. |
 | **Pipeline** | Kanban: Sin contactar → Contactado → Respondió → Reunión agendada → Propuesta enviada → Cliente / Perdido. Arrastrá las tarjetas; se guarda solo. |
 | **Auditorías** | Nuevo análisis y registro de todos los análisis (incluidos los reanálisis). |
-| **Perfil del prospecto** | Responsable, próximo contacto, score por área, datos del negocio, problemas (impacto, motivo, servicio, beneficio), servicios recomendados, presupuesto, potencial económico, mensajes de WhatsApp, notas internas e historial. |
+| **Perfil del prospecto** | Responsable, próximo contacto, presupuesto **personalizable**, score por área, datos del negocio, problemas (impacto, motivo, servicio, beneficio), servicios recomendados, presupuesto, potencial económico, mensajes de WhatsApp, notas internas e historial. |
 | **Métricas** | Conversión, ticket promedio, servicios más recomendados, rubros más analizados, scores promedio y distribución. |
-| **Configuración** | Botones **Editar datos** (negocio, ciudad, presentación y web/Instagram que usan los mensajes de WhatsApp, con vista previa) y **Editar precios** (se recalculan todos los prospectos al instante). También copia de seguridad, usuarios y registro de actividad (solo administrador). |
+| **Configuración** | Botones **Editar datos** (negocio, ciudad, presentación y web/Instagram que usan los mensajes de WhatsApp, con vista previa) y **Editar servicios y precios** (agregar, quitar y renombrar servicios; se recalculan todos los prospectos al instante). También copia de seguridad, usuarios y registro de actividad (solo administrador). |
 
 ### Flujo diario sugerido
 
@@ -97,29 +97,41 @@ Sección **Generador**: indicá **rubro** (ej.: Barberías), **ciudad o zona** (
 
 ---
 
-## Precios y presupuestos (pesos argentinos)
+## Servicios, precios y presupuestos (pesos argentinos)
 
-Se editan desde **Configuración → Precios → Editar precios** (solo administrador): pago inicial y abono de cada servicio, meses de contrato, descuento por paquete y moneda. Al guardar, el presupuesto y el valor potencial de **todos** los prospectos se recalculan en el momento, y queda registrado en el registro de actividad.
+**Configuración → Servicios y precios → Editar servicios y precios** (solo administrador):
 
-Los precios se guardan en **`precios.json`**, que también se puede editar a mano:
+- Cambiar **pago inicial** y **abono mensual** de cada servicio, el **descuento por paquete** y la **moneda**.
+- **Agregar servicios propios** (nombre, descripción y precio).
+- **Quitar** servicios que no ofrecés (los de la herramienta se pueden **restaurar**; los propios se eliminan). Un servicio quitado no se recomienda, no entra en los presupuestos y no se menciona en los mensajes de WhatsApp.
+- Cambiar el nombre y la descripción de cualquier servicio.
+
+Al guardar, el presupuesto y el valor potencial de **todos** los prospectos se recalculan en el momento, y queda en el registro de actividad.
+
+**Presupuesto de cada prospecto:** en el perfil, **Personalizar** permite elegir los servicios (incluidos los propios), ajustar el precio para ese cliente y aplicar un descuento. Reemplaza al plan recomendado automático, se conserva aunque reanalices el negocio y se puede **Volver al automático**. Lo puede hacer el vendedor asignado o un administrador.
+
+Los presupuestos muestran **pago inicial + abono mensual**: no se suma un "total por N meses", porque no se sabe cuánto tiempo va a pagar cada cliente.
+
+- **Valor potencial** de un prospecto = pago inicial del plan recomendado (o del personalizado), con descuento. El abono mensual se muestra aparte.
+- **Plan completo** = pago inicial de todos los servicios de prioridad alta y media.
+- **Ticket promedio** = promedio del valor potencial.
+
+Todo se guarda en **`precios.json`**, que también se puede editar a mano:
 
 ```json
 {
   "moneda": "ARS",
-  "mesesContrato": 12,
   "servicios": {
     "maps-optimization": { "pagoInicial": 250000, "mensual": 80000 },
-    "website":           { "pagoInicial": 650000, "mensual": 35000 }
+    "website":           { "pagoInicial": 650000, "mensual": 35000, "nombre": "Landing page" },
+    "booking-system":    { "pagoInicial": 320000, "mensual": 55000, "activo": false },
+    "custom-diseno-de-logo": { "pagoInicial": 90000, "mensual": 0, "nombre": "Diseño de logo", "descripcion": "Logo y paleta" }
   },
   "descuentoPaquete": { "minimoServicios": 3, "porcentaje": 10 }
 }
 ```
 
-- **Valor potencial** de un prospecto = plan recomendado (pago inicial con descuento + abono × meses de contrato).
-- **Total del proyecto** = lo mismo con el plan completo.
-- **Ticket promedio** = promedio del valor potencial.
-- Al guardar `precios.json`, **todos** los prospectos se recalculan solos. Si el archivo tiene un error, se siguen usando los últimos precios válidos y Configuración lo avisa.
-- Los precios incluidos son **de ejemplo**: reemplazalos por los tuyos.
+Si el archivo tiene un error, se siguen usando los últimos precios válidos y Configuración lo avisa. Un `mesesContrato` de versiones anteriores se ignora. Los precios incluidos son **de ejemplo**: reemplazalos por los tuyos.
 
 ---
 
@@ -237,6 +249,7 @@ Todas las rutas requieren sesión salvo las de `/api/auth` (login, estado, alta 
 | GET | `/api/prospects` | Listado (`q`, `status`, `vertical`, `minScore`, `maxScore`, `sort`, `dir`; admin: `assigned=me\|none\|<id>`) |
 | GET / PATCH / DELETE | `/api/prospects/:id` | Detalle con mensajes · estado, notas, valor cerrado, responsable (admin) · borrar (admin) |
 | POST | `/api/prospects/assign` | Asignación masiva (admin) |
+| PUT | `/api/prospects/:id/presupuesto` | Presupuesto personalizado `{override: {items, discountPct}}` o `{override: null}` |
 | GET / POST / PATCH | `/api/followups`, `/api/prospects/:id/followups`, `/api/followups/:id` | Seguimientos: listar, agendar, marcar hecho o cancelado |
 | POST | `/api/prospects/:id/activities` | Registrar actividad (nota, llamada, WhatsApp, email, reunión, otra) |
 | GET | `/api/dashboard` | Datos agregados (del vendedor o globales) y KPIs personales |
@@ -250,7 +263,7 @@ Todas las rutas requieren sesión salvo las de `/api/auth` (login, estado, alta 
 | GET | `/api/export` | Copia de seguridad JSON (admin) |
 
 ```bash
-npm test           # 83 tests: unitarios, presupuesto, CRM, migraciones, autenticación y roles, API, mensajes, diagnóstico, confiabilidad, generador (dedupe, score, persistencia, API e interfaz), layout y e2e con Chromium
+npm test           # 87 tests: unitarios, presupuesto, CRM, migraciones, autenticación y roles, API, mensajes, diagnóstico, confiabilidad, generador (dedupe, score, persistencia, API e interfaz), layout y e2e con Chromium
 npm run typecheck
 ```
 

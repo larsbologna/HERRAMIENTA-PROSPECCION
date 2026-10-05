@@ -136,10 +136,11 @@ test('cambiar precios recalcula el valor potencial de toda la base; precios invÃ
   });
   const { id } = repo.saveAnalysis(analysis());
   const before = repo.get(id).potentialValue;
-  prices = { ...basePrices, mesesContrato: 24 };
+  // Duplicar los pagos iniciales: el valor potencial (pago inicial del plan recomendado) se recalcula.
+  prices = { ...basePrices, servicios: Object.fromEntries(Object.entries(basePrices.servicios).map(([k, v]) => [k, v && { ...v, pagoInicial: v.pagoInicial * 2 }])) };
   const after = repo.get(id);
   assert.ok(after.potentialValue > before, `${after.potentialValue} > ${before}`);
-  assert.equal(after.budget.recommended.contractMonths, 24);
+  assert.equal(after.budget.recommended.contractMonths, 0);
   broken = true;
   assert.equal(repo.get(id).potentialValue, after.potentialValue);
   assert.match(repo.priceError ?? '', /formato/);

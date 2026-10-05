@@ -255,7 +255,8 @@ export interface Proposal {
 }
 
 export interface BudgetItem {
-  id: ServiceId;
+  /** Servicio de la herramienta o servicio propio ("custom-…"). */
+  id: ServiceId | string;
   name: string;
   priority: Priority;
   /** Pago inicial (implementación). */
@@ -273,9 +274,9 @@ export interface BudgetOption {
   /** Descuento aplicado al pago inicial por contratar varios servicios (0 si no aplica). */
   discountPct: number;
   setupAfterDiscount: number;
-  /** Meses de contrato considerados para el total (precios.json → mesesContrato). */
+  /** Obsoleto: siempre 0 (ya no se suman meses de contrato). Se conserva por compatibilidad. */
   contractMonths: number;
-  /** Pago inicial con descuento + cuota mensual × meses de contrato. */
+  /** Valor del plan: el pago inicial con descuento (el abono mensual se informa aparte). */
   total: number;
 }
 
@@ -287,10 +288,12 @@ export interface Budget {
   recommended: BudgetOption;
   /** Prioridad alta + media. */
   complete: BudgetOption;
-  /** Valor potencial del prospecto: total del plan recomendado. */
+  /** Valor potencial del prospecto: pago inicial del plan recomendado (o del personalizado). */
   potentialValue: number;
-  /** Total del proyecto: total del plan completo. */
+  /** Pago inicial del plan completo. */
   projectTotal: number;
+  /** true si el plan recomendado fue reemplazado por un presupuesto personalizado. */
+  custom?: boolean;
 }
 
 /** Resultado completo de un análisis (lo que muestra la interfaz). */

@@ -1,3 +1,5 @@
+import type { BudgetOverride } from '../proposal/budget.js';
+import type { CatalogService } from '../proposal/catalog.js';
 import type { AnalysisResult, AreaScore, Budget, SalesArgument, ServiceRecommendation } from '../domain/types.js';
 
 /** Estados del pipeline comercial, en orden. `stage` mide hasta dónde avanzó (para el embudo). */
@@ -46,6 +48,7 @@ export const ACTIVITY_TYPES = {
   login: 'Inició sesión',
   logout: 'Cerró sesión',
   usuario: 'Gestión de usuarios',
+  presupuesto: 'Presupuesto personalizado',
   configuracion: 'Cambio de configuración',
   generador: 'Generador de prospectos',
 } as const;
@@ -132,6 +135,10 @@ export interface ProspectDetail extends ProspectSummary {
   services: ServiceRecommendation[];
   /** Presupuesto recalculado con los precios actuales. */
   budget: Budget;
+  /** Presupuesto armado a mano (null = automático). */
+  budgetOverride: BudgetOverride | null;
+  /** Servicios activos del catálogo (para armar el presupuesto personalizado). */
+  catalog: CatalogService[];
   audits: AuditEntry[];
   activities: Activity[];
   followups: Followup[];

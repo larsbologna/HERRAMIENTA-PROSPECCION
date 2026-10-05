@@ -1,6 +1,6 @@
 import { api } from '../api.js';
 import {
-  $, $$, IMP, autoGrow, confirmDialog, copyText, date, dateTime, esc, icon, money, moneyShort, number, scoreClass,
+  $, $$, IMP, autoGrow, confirmDialog, modal, copyText, date, dateTime, esc, icon, money, moneyShort, number, scoreClass,
   statusLabel, statusOptions, toast, waLink,
 } from '../ui.js';
 
@@ -117,32 +117,60 @@ function plan(o, featured) {
   if (!o) return '';
   return `<div class="plan ${featured ? 'featured' : ''}">
     <h4>${esc(o.label)}</h4><div class="desc">${esc(o.description)}</div>
-    ${o.items.length ? `<ul>${o.items.map((i) => `<li><span>${esc(i.name)}</span><span class="num">${money(i.setup)} + ${money(i.monthly)}/mes</span></li>`).join('')}</ul>` : '<p class="muted">Sin servicios.</p>'}
-    <div class="tot"><span class="muted">Pago inicial</span><b class="num">${o.discountPct ? `<span class="strike">${money(o.setup)}</span>` : ''}${money(o.setupAfterDiscount)}</b></div>
-    <div class="tot"><span class="muted">Mensual</span><b class="num">${money(o.monthly)}</b></div>
-    <div class="tot grand"><span>Total ${o.contractMonths} meses</span><b class="num">${money(o.total)}</b></div>
-    ${o.discountPct ? `<div class="faint" style="font-size:12px;margin-top:6px">Incluye ${o.discountPct}% de descuento por paquete.</div>` : ''}
+    ${o.items.length ? `<ul>${o.items.map((i) => `<li><span>${esc(i.name)}</span><span class="num">${money(i.setup)}${i.monthly ? ` + ${money(i.monthly)}/mes` : ''}</span></li>`).join('')}</ul>` : '<p class="muted">Sin servicios.</p>'}
+    <div class="tot grand"><span>Pago inicial</span><b class="num">${o.discountPct ? `<span class="strike">${money(o.setup)}</span>` : ''}${money(o.setupAfterDiscount)}</b></div>
+    <div class="tot month"><span class="muted">Abono mensual</span><b class="num">${o.monthly ? `${money(o.monthly)}/mes` : 'Sin abono'}</b></div>
+    ${o.discountPct ? `<div class="faint" style="font-size:12px;margin-top:6px">Incluye ${o.discountPct}% de descuento${o.label === 'Presupuesto personalizado' ? '' : ' por paquete'}.</div>` : ''}
   </div>`;
 }
 
 function budgetCard(p) {
   const b = p.budget;
   return `<section class="card" id="presupuesto">
-    <div class="card-head"><h2>Presupuesto</h2><span class="sub">Con los precios actuales de precios.json</span></div>
+    <div class="card-head"><h2>Presupuesto</h2>
+      <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">
+        ${b.custom ? `<span class="badge gen-new budget-custom">Personalizado</span><button class="btn btn-sm btn-ghost" id="budget-reset">${icon('refresh')}Volver al automático</button>` : '<span class="sub">Con los servicios y precios de Configuración</span>'}
+        <button class="btn btn-sm" id="budget-edit">${icon('edit')}Personalizar</button>
+      </div></div>
     <div class="plans">${plan(b.recommended, true)}${plan(b.complete, false)}</div>
     ${b.note ? `<p class="faint" style="font-size:12px;margin:12px 0 0">${esc(b.note)}</p>` : ''}
   </section>`;
 }
 
+/** Modal "Personalizar presupuesto": elegir servicios (incluidos los propios) y ajustar precios para este cliente. */
+function budgetEditor(p) {
+  const current = new Map((p.budgetOverride?.items ?? p.budget.recommended?.items ?? []).map((i) => [i.id, i]));
+  const rows = (p.catalog ?? []).map((c) => {
+    const cur = current.get(c.id);
+    const on = !!cur;
+    return `<div class="bo-row ${on ? '' : 'off'}" data-bo="${esc(c.id)}">
+      <input type="checkbox" class="check" data-on ${on ? 'checked' : ''} aria-label="Incluir ${esc(c.name)}">
+      <div class="bo-name">${esc(c.name)}${c.builtIn ? '' : ' <span class="badge svc-tag">Propio</span>'}${c.description ? `<small>${esc(c.description)}</small>` : ''}</div>
+      <label class="svc-price">Pago inicial<input class="input num right" data-k="setup" type="number" min="0" step="1000" value="${cur?.setup ?? c.setup ?? 0}"></label>
+      <label class="svc-price">Abono mensual<input class="input num right" data-k="monthly" type="number" min="0" step="1000" value="${cur?.monthly ?? c.monthly ?? 0}"></label>
+    </div>`;
+  }).join('');
+  const discount = p.budgetOverride?.discountPct ?? p.budget.recommended?.discountPct ?? 0;
+  return `<h2>Personalizar presupuesto</h2>
+    <p>Elegí los servicios y los precios para <b>${esc(p.name)}</b>. Reemplaza al plan recomendado automático y se conserva aunque reanalices el negocio.</p>
+    <form class="stack" id="bo-form" style="gap:10px">
+      <div class="svc-list">${rows || '<p class="muted">No hay servicios activos. Agregalos en Configuración → Servicios y precios.</p>'}</div>
+      <label class="field" style="max-width:220px">Descuento (%)<input class="input num" name="discount" type="number" min="0" max="90" value="${discount}"></label>
+      <div class="bo-sum" id="bo-sum"></div>
+      <div class="error-text" id="bo-err"></div>
+      <div class="btn-row" style="justify-content:flex-end"><button type="button" class="btn" data-close>Cancelar</button><button class="btn btn-primary">${icon('check')}Guardar presupuesto</button></div>
+    </form>`;
+}
+
 function valueCard(p) {
   const b = p.budget;
+  const rec = b.recommended ?? {};
   return `<section class="card">
     <div class="card-head"><h2>Potencial económico</h2></div>
     <div class="money-big num">${esc(money(p.potentialValue))}</div>
-    <div class="faint" style="font-size:12px;margin-bottom:12px">Plan recomendado · ${b.recommended?.contractMonths ?? 12} meses</div>
-    <div class="kv"><span>Total del proyecto (plan completo)</span><b class="num">${esc(money(p.projectTotal))}</b></div>
-    <div class="kv"><span>Pago inicial recomendado</span><b class="num">${esc(money(b.recommended?.setupAfterDiscount ?? 0))}</b></div>
-    <div class="kv"><span>Abono mensual recomendado</span><b class="num">${esc(money(b.recommended?.monthly ?? 0))}</b></div>
+    <div class="faint" style="font-size:12px;margin-bottom:12px">Pago inicial · ${b.custom ? 'presupuesto personalizado' : 'plan recomendado'}${rec.monthly ? ` · + ${esc(money(rec.monthly))}/mes de abono` : ''}</div>
+    <div class="kv"><span>Abono mensual ${b.custom ? 'del presupuesto' : 'recomendado'}</span><b class="num">${rec.monthly ? `${esc(money(rec.monthly))}/mes` : 'Sin abono'}</b></div>
+    <div class="kv"><span>Plan completo</span><b class="num">${esc(money(b.complete?.setupAfterDiscount ?? p.projectTotal))}${b.complete?.monthly ? ` + ${esc(money(b.complete.monthly))}/mes` : ''}</b></div>
     <div class="kv" style="align-items:center"><span>Valor cerrado</span>
       ${p.status === 'cliente'
         ? `<input class="input num" id="closed" type="number" min="0" step="1000" value="${p.closedValue ?? p.potentialValue}" style="width:150px;text-align:right">`
@@ -407,6 +435,51 @@ export async function render(main, { id }, ctx) {
       }
     };
     showMessage();
+
+    // Presupuesto personalizado
+    $('#budget-edit', main).onclick = () => {
+      const m = modal(budgetEditor(p));
+      m.root.querySelector('.modal').classList.add('modal-wide');
+      const form = $('#bo-form', m.root);
+      const collect = () => $$('[data-bo]', form).filter((r) => $('[data-on]', r).checked).map((r) => ({
+        id: r.dataset.bo, setup: Number($('[data-k="setup"]', r).value || 0), monthly: Number($('[data-k="monthly"]', r).value || 0),
+      }));
+      const sum = () => {
+        for (const r of $$('[data-bo]', form)) r.classList.toggle('off', !$('[data-on]', r).checked);
+        const items = collect();
+        const setup = items.reduce((a, i) => a + i.setup, 0);
+        const monthly = items.reduce((a, i) => a + i.monthly, 0);
+        const d = Math.min(90, Math.max(0, Number(form.discount.value) || 0));
+        $('#bo-sum', m.root).innerHTML = `<span>${items.length} servicio${items.length === 1 ? '' : 's'}</span><span>Pago inicial <b class="num">${money(Math.round(setup * (1 - d / 100)))}</b>${d ? ` <span class="faint">(${d}% off)</span>` : ''}</span><span>Abono <b class="num">${money(monthly)}/mes</b></span>`;
+      };
+      form.addEventListener('input', sum);
+      form.addEventListener('change', sum);
+      sum();
+      $('[data-close]', m.root).onclick = () => m.close();
+      form.onsubmit = async (e) => {
+        e.preventDefault();
+        const btn = $('button.btn-primary', form);
+        btn.disabled = true;
+        try {
+          p = await api.setBudget(id, { items: collect(), discountPct: Number(form.discount.value || 0) });
+          m.close();
+          toast('Presupuesto personalizado guardado');
+          draw();
+        } catch (err) {
+          $('#bo-err', m.root).textContent = err.message;
+          btn.disabled = false;
+        }
+      };
+    };
+    $('#budget-reset', main)?.addEventListener('click', async () => {
+      try {
+        p = await api.setBudget(id, null);
+        toast('Volvió al presupuesto automático');
+        draw();
+      } catch (err) {
+        toast(err.message, 'err');
+      }
+    });
 
     // Valor cerrado
     const closed = $('#closed', main);

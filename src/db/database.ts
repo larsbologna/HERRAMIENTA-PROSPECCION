@@ -198,6 +198,10 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX idx_generated_status ON generated_prospects(status);
   CREATE INDEX idx_generated_run ON generated_prospects(run_id);
   `,
+  // 4 · Presupuesto personalizado por prospecto (servicios y precios elegidos a mano)
+  `
+  ALTER TABLE prospects ADD COLUMN budget_override_json TEXT;
+  `,
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;
