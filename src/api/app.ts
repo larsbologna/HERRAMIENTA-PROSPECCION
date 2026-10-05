@@ -10,7 +10,7 @@ import { NotFoundError, endOfToday, type CrmRepository } from '../crm/repository
 import { dashboard, metrics, personalKpis } from '../crm/stats.js';
 import { ACTIVITY_TYPES, MANUAL_ACTIVITY_TYPES, STATUSES, isStatus, type FollowupStatus, type ProspectFilter, type Settings } from '../crm/types.js';
 import { DEFAULT_VERTICAL, VERTICALS } from '../domain/verticals.js';
-import { buildMessages } from '../messages/whatsapp.js';
+import { buildMessages, MESSAGE_KEYS, type MessageKey } from '../messages/whatsapp.js';
 import { SERVICE_CATALOG } from '../proposal/services.js';
 import {
   HttpError,
@@ -247,6 +247,23 @@ export function createApp(deps: AppDeps): http.Server {
     .on('GET', '/api/prospects/:id', ({ params, user }) => {
       ensureAccess(user, params.id!);
       return detailFor(user, params.id!);
+    })
+    // "Otra versión" del mensaje de WhatsApp: devuelve una variante distinta de la anterior.
+    .on('GET', '/api/prospects/:id/mensaje', ({ params, query, user }) => {
+      ensureAccess(user, params.id!);
+      const tipo = query.get('tipo') ?? 'primerContacto';
+      if (!(MESSAGE_KEYS as readonly string[]).includes(tipo)) throw new HttpError(400, 'Tipo de mensaje inválido.');
+      const key = tipo as MessageKey;
+      const requested = Math.max(1, Math.min(10_000, Number.parseInt(query.get('variante') ?? '1', 10) || 1));
+      const detail = repo.get(params.id!);
+      const seller = sellerFor(user);
+      const previous = buildMessages(detail, seller, requested - 1)[key];
+      // Si la combinación coincide con la anterior, se prueba la siguiente (hasta 12 intentos).
+      for (let v = requested; v < requested + 12; v++) {
+        const text = buildMessages(detail, seller, v)[key];
+        if (text !== previous) return { tipo: key, variante: v, texto: text };
+      }
+      return { tipo: key, variante: requested, texto: buildMessages(detail, seller, requested)[key] };
     })
     .on('PATCH', '/api/prospects/:id', async ({ req, params, user }) => {
       ensureAccess(user, params.id!);

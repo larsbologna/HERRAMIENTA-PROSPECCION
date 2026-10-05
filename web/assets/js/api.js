@@ -19,6 +19,7 @@ export const api = {
   audits: () => request('GET', '/api/audits'),
   prospects: (params = {}) => request('GET', '/api/prospects?' + new URLSearchParams(Object.entries(params).filter(([, v]) => v !== '' && v != null))),
   prospect: (id) => request('GET', `/api/prospects/${encodeURIComponent(id)}`),
+  messageVariant: (id, tipo, variante) => request('GET', `/api/prospects/${encodeURIComponent(id)}/mensaje?tipo=${encodeURIComponent(tipo)}&variante=${variante}`),
   update: (id, body) => request('PATCH', `/api/prospects/${encodeURIComponent(id)}`, body),
   remove: (id) => request('DELETE', `/api/prospects/${encodeURIComponent(id)}`),
   addActivity: (id, type, content) => request('POST', `/api/prospects/${encodeURIComponent(id)}/activities`, { type, content }),

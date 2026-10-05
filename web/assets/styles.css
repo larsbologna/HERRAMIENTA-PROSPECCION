@@ -532,3 +532,7 @@ table.table.dq { min-width: 640px; }
   .sidebar-foot .avatar { display: none; }
   .sidebar-foot .me { gap: 2px; }
 }
+/* Mensaje de WhatsApp: "Otra versión" */
+.msg-hint { font-size: 12px; margin: 6px 0 10px; }
+.wa-text.flash { animation: msgflash .6s ease; }
+@keyframes msgflash { from { border-color: var(--green); box-shadow: 0 0 0 3px rgba(93, 214, 44, .25); } to { border-color: var(--line); box-shadow: none; } }
