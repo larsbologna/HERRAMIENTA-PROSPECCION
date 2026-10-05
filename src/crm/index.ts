@@ -2,16 +2,17 @@ import path from 'node:path';
 import { config } from '../config/index.js';
 import { openDatabase } from '../db/database.js';
 import { UserRepository } from '../auth/users.js';
+import { GeneratorRepository } from '../generator/repository.js';
 import { importLegacyReports } from './legacyImport.js';
 import { CrmRepository } from './repository.js';
 
 export const DB_FILE = path.join(config.dataDir, 'prospeccion.db');
 
-/** Abre la base: CRM + usuarios, aplica migraciones e importa informes antiguos si los hay. */
-export function openStores(file = DB_FILE): { crm: CrmRepository; users: UserRepository } {
+/** Abre la base: CRM + usuarios + generador, aplica migraciones e importa informes antiguos si los hay. */
+export function openStores(file = DB_FILE): { crm: CrmRepository; users: UserRepository; generator: GeneratorRepository } {
   const db = openDatabase(file);
   const crm = prepareCrm(new CrmRepository(db));
-  return { crm, users: new UserRepository(db, config.sessionDays) };
+  return { crm, users: new UserRepository(db, config.sessionDays), generator: new GeneratorRepository(db) };
 }
 
 /** Abre solo el CRM (uso por terminal). */

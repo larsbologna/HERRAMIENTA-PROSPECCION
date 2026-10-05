@@ -58,7 +58,7 @@ export function isMapsUrl(raw: string): boolean {
 }
 
 /** Fuerza el idioma configurado para que los textos (y regex) sean previsibles. */
-function withLanguage(raw: string): string {
+export function withLanguage(raw: string): string {
   try {
     const url = new URL(raw);
     if (/google\./i.test(url.hostname)) url.searchParams.set('hl', config.browser.mapsLanguage);
@@ -151,7 +151,7 @@ export async function scrapeMapsProfile(browser: Browser, inputUrl: string, opts
   }
 }
 
-async function handleConsent(page: Page, progress: (m: string) => void): Promise<void> {
+export async function handleConsent(page: Page, progress: (m: string) => void): Promise<void> {
   if (!/consent\.google\./.test(page.url())) {
     const dialog = await page.$('form[action*="consent"] button, div[role="dialog"] button[aria-label*="Rechazar" i]');
     if (!dialog) return;
@@ -180,7 +180,7 @@ async function openFirstResultIfList(page: Page, progress: (m: string) => void):
 const SCROLLABLE_PANEL = 'div[role="main"] div.m6QErb.DxyBCb, div[role="main"] div.m6QErb[tabindex="-1"]';
 
 /** Desplaza el panel hasta el final (o hasta `max` intentos). Devuelve true si llegó al final. */
-async function scrollPanelToEnd(page: Page, max: number): Promise<boolean> {
+export async function scrollPanelToEnd(page: Page, max: number): Promise<boolean> {
   let lastHeight = -1;
   for (let i = 0; i < max; i++) {
     const state = (await page

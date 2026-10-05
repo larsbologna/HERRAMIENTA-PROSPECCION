@@ -56,3 +56,27 @@ test('sin nombre configurado deja un marcador visible; variantes estables por pr
   const distinct = new Set(Array.from({ length: 12 }, (_, i) => messagesFor({}, `seed-${i}`).primerContacto));
   assert.ok(distinct.size >= 3, `pocas variantes: ${distinct.size}`);
 });
+
+test('"Otra versión": cada variante cambia el texto, sin inventar datos ni frases prohibidas', () => {
+  const p = { ...base };
+  const a = buildAnalysis('u', p, undefined, { durationMs: 0 });
+  const input = { id: 'p1', name: p.name!, verticalId: a.vertical.id, verticalLabel: a.vertical.label, problems: a.proposal.salesArguments, services: a.proposal.services, analysis: a };
+  const seller = { sellerName: 'Martín', sellerCity: 'Rosario', sellerBusiness: 'Presencia Total' };
+  // La versión 0 es la de siempre.
+  assert.deepEqual(buildMessages(input, seller, 0), buildMessages(input, seller));
+  const seen = new Set<string>();
+  for (let v = 0; v < 8; v++) {
+    const m = buildMessages(input, seller, v);
+    for (const text of Object.values(m)) {
+      assert.doesNotMatch(text, BANNED, `variante ${v}: ${text}`);
+      assert.doesNotMatch(text, /puedo que|puedo un /, `redacción rota en variante ${v}`);
+    }
+    assert.match(m.primerContacto, /Parrilla Don Tito/);
+    assert.match(m.primerContacto, /Martín/);
+    seen.add(m.primerContacto);
+  }
+  assert.ok(seen.size >= 6, `deberían salir versiones distintas (salieron ${seen.size} de 8)`);
+  // Varía también qué problema abre el mensaje.
+  const openings = new Set([1, 2, 3, 4, 5, 6].map((v) => buildMessages(input, seller, v).primerContactoCorto.split('\n\n')[1]));
+  assert.ok(openings.size >= 2, 'el problema de arranque debería rotar entre versiones');
+});

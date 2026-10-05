@@ -109,6 +109,7 @@ Puntos importantes de la configuración (ya incluidos en el ejemplo):
 |---|---|
 | `proxy_buffering off` en `/api/analizar` | El progreso del análisis llega en streaming; con buffer la barra queda congelada. |
 | `proxy_read_timeout 300s` en `/api/analizar` | Un análisis puede tardar hasta 3 minutos. |
+| `proxy_read_timeout 1000s` en `/api/generador/generar` | El Generador de Prospectos recorre muchas fichas: puede tardar hasta 15 minutos (`GENERATOR_TIMEOUT_MS`). |
 | `X-Forwarded-For / Proto / Host` | IP real, HTTPS y validación de origen (protección CSRF). |
 | `limit_req` en `/api/auth/login` | Segunda barrera contra fuerza bruta (la app ya bloquea 15 min tras 5 fallos). |
 

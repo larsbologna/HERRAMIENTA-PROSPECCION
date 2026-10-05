@@ -8,6 +8,10 @@ import { UserRepository } from '../src/auth/users.js';
 import { CrmRepository } from '../src/crm/repository.js';
 import { openDatabase } from '../src/db/database.js';
 import type { BusinessProfile } from '../src/domain/types.js';
+import { keysFor, SeenIndex } from '../src/generator/dedupe.js';
+import type { GeneratedCandidate, generateProspects } from '../src/generator/generator.js';
+import { GeneratorRepository } from '../src/generator/repository.js';
+import { opportunityScore } from '../src/generator/score.js';
 import { loadPriceList } from '../src/proposal/budget.js';
 
 export const profile = (name: string): BusinessProfile => ({
@@ -24,6 +28,33 @@ export const fakeAnalyze = (async (url, opts) => {
   return buildAnalysis(url, profile(decodeURIComponent(url.split('/').pop()!)), undefined, { durationMs: 10 });
 }) as typeof analyze;
 
+/** Generador falso (sin navegador): un "Google Maps" fijo de 3 negocios, con la deduplicación real. */
+export const fakeGenerate = (async (req, deps) => {
+  const pool = [
+    { name: 'Barbería Uno', address: 'Mitre 1, Quilmes', phone: '1140000001', facts: { hasWebsite: false, claimed: false } },
+    { name: 'Barbería Dos', address: 'Mitre 2, Quilmes', phone: '1140000002', facts: { hasWebsite: true, claimed: true } },
+    { name: 'Barbería Tres', address: 'Mitre 3, Quilmes', phone: '1140000003', facts: { hasWebsite: false, hasPhone: true } },
+  ];
+  deps.onProgress?.({ percent: 30, message: 'Buscando…' });
+  const seen = new SeenIndex(deps.known);
+  const items: GeneratedCandidate[] = [];
+  for (const [i, b] of pool.entries()) {
+    if (items.length >= req.cantidad) break;
+    const mapsUrl = `https://www.google.com/maps/place/x/data=!1s0x1:0x${i + 1}!19sChIJfake${String(i).padStart(20, '0')}`;
+    const keys = keysFor({ ...b, mapsUrl });
+    if (seen.match(keys)) continue;
+    seen.add(keys);
+    const sc = opportunityScore(b.facts, { bookingRelevant: true });
+    items.push({ ...b, mapsUrl, keys, placeId: keys.placeId, score: sc.score, points: sc.points, reasons: sc.reasons, unverified: sc.unverified });
+  }
+  items.sort((a, b) => b.score - a.score);
+  const exhausted = items.length < req.cantidad;
+  const message = exhausted
+    ? `Se encontraron ${items.length} prospectos nuevos. No quedan más negocios sin analizar para este rubro y ubicación.`
+    : `Se encontraron ${items.length} prospectos nuevos.`;
+  return { items, exhausted, timedOut: false, message, stats: { scanned: 3, opened: 3, duplicates: 3 - items.length, outOfZone: 0, closed: 0, errors: 0, queries: ['q'] } };
+}) as typeof generateProspects;
+
 export async function startApp(security: AppDeps['security'] = {}) {
   const webDir = mkdtempSync(path.join(os.tmpdir(), 'web-'));
   writeFileSync(path.join(webDir, 'index.html'), '<h1>App</h1>');
@@ -34,10 +65,11 @@ export async function startApp(security: AppDeps['security'] = {}) {
   let prices = loadPriceList();
   const repo = new CrmRepository(db, () => prices, (p) => { prices = p; });
   const users = new UserRepository(db);
-  const server = createApp({ repo, users, analyze: fakeAnalyze, webDir, log: () => {}, security }).listen(0, '127.0.0.1');
+  const generator = new GeneratorRepository(db);
+  const server = createApp({ repo, users, generator, generate: fakeGenerate, analyze: fakeAnalyze, webDir, log: () => {}, security }).listen(0, '127.0.0.1');
   await new Promise((r) => server.once('listening', r));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-  return { base, repo, users, webDir, close: () => server.close() };
+  return { base, repo, users, generator, webDir, close: () => server.close() };
 }
 
 /** Cliente HTTP con cookie de sesión (como un navegador). */
@@ -74,6 +106,12 @@ export class Client {
   /** Analiza vía stream y devuelve las líneas. */
   async analyze(url: string) {
     const res = await this.req('POST', '/api/analizar', { url });
+    return (await res.text()).trim().split('\n').map((l) => JSON.parse(l));
+  }
+
+  async generate(body: { rubro: string; zona: string; cantidad: number }) {
+    const res = await this.req('POST', '/api/generador/generar', body);
+    if (res.status !== 200) return [{ tipo: 'http', status: res.status, ...((await res.json()) as object) }];
     return (await res.text()).trim().split('\n').map((l) => JSON.parse(l));
   }
 }

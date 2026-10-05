@@ -153,13 +153,15 @@ function valueCard(p) {
 
 function messagesCard(p) {
   return `<section class="card" id="mensajes">
-    <div class="card-head"><h2>Mensaje de WhatsApp</h2><span class="sub">Editalo antes de enviarlo</span></div>
+    <div class="card-head"><h2>Mensaje de WhatsApp</h2>
+      <button class="btn btn-sm" id="regen" title="Generar otra versión de este mensaje">${icon('refresh')}Otra versión</button></div>
     <div class="tabs" role="tablist">
       <button class="on" data-msg="primerContacto">1er contacto</button>
       <button data-msg="primerContactoCorto">Corto</button>
       <button data-msg="seguimiento">Seguimiento</button>
     </div>
-    <textarea class="textarea wa-text" id="msg"></textarea>
+    <textarea class="textarea wa-text" id="msg" aria-label="Mensaje de WhatsApp (editable)"></textarea>
+    <p class="faint msg-hint" id="msg-hint">Podés editarlo antes de enviarlo. Si no te gusta, tocá "Otra versión".</p>
     <div class="btn-row">
       <button class="btn btn-sm" id="copy">${icon('copy')}Copiar</button>
       <a class="btn btn-sm" id="wa" target="_blank" rel="noopener">${icon('external')}Abrir WhatsApp</a>
@@ -233,6 +235,10 @@ function historyCard(p, activityTypes) {
 export async function render(main, { id }, ctx) {
   let p = await api.prospect(id);
   let msgKey = 'primerContacto';
+  // "Otra versión": versión pedida y texto generado por tipo de mensaje (se conservan al recargar el perfil).
+  const variants = { primerContacto: 0, primerContactoCorto: 0, seguimiento: 0 };
+  const generated = {};
+  let edited = false;
 
   const draw = () => {
     main.innerHTML = `
@@ -272,7 +278,10 @@ export async function render(main, { id }, ctx) {
 
   const showMessage = () => {
     const ta = $('#msg', main);
-    ta.value = p.messages[msgKey];
+    ta.value = generated[msgKey] ?? p.messages[msgKey];
+    edited = false;
+    const hint = $('#msg-hint', main);
+    if (hint) hint.textContent = variants[msgKey] ? `Versión ${variants[msgKey] + 1}. Si no te gusta, tocá "Otra versión" de nuevo.` : 'Podés editarlo antes de enviarlo. Si no te gusta, tocá "Otra versión".';
     autoGrow(ta);
     $('#wa', main).href = waLink(p.phone, ta.value);
     for (const b of $$('[data-msg]', main)) b.classList.toggle('on', b.dataset.msg === msgKey);
@@ -363,7 +372,26 @@ export async function render(main, { id }, ctx) {
 
     // Mensajes
     for (const b of $$('[data-msg]', main)) b.onclick = () => { msgKey = b.dataset.msg; showMessage(); };
-    $('#msg', main).oninput = (e) => { autoGrow(e.target); $('#wa', main).href = waLink(p.phone, e.target.value); };
+    $('#msg', main).oninput = (e) => { edited = true; autoGrow(e.target); $('#wa', main).href = waLink(p.phone, e.target.value); };
+    $('#regen', main).onclick = async () => {
+      if (edited && !(await confirmDialog('Generar otra versión', 'Vas a perder los cambios que hiciste a mano en este mensaje.', 'Generar otra'))) return;
+      const btn = $('#regen', main);
+      btn.disabled = true;
+      try {
+        const r = await api.messageVariant(id, msgKey, variants[msgKey] + 1);
+        variants[msgKey] = r.variante;
+        generated[msgKey] = r.texto;
+        showMessage();
+        const ta = $('#msg', main);
+        ta.classList.remove('flash');
+        void ta.offsetWidth;
+        ta.classList.add('flash');
+      } catch (err) {
+        toast(err.message, 'err');
+      } finally {
+        btn.disabled = false;
+      }
+    };
     $('#copy', main).onclick = async () => { await copyText($('#msg', main).value); toast('Mensaje copiado'); };
     $('#sent', main).onclick = async () => {
       const names = { primerContacto: 'primer contacto', primerContactoCorto: 'primer contacto (corto)', seguimiento: 'seguimiento' };

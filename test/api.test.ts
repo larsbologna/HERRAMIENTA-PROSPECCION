@@ -131,6 +131,23 @@ test('editar precios y datos del negocio desde Configuración: se aplica al inst
   assert.ok(log.some((a: any) => /Datos del negocio/.test(a.content)));
 });
 
+test('"Otra versión" del mensaje de WhatsApp', async () => {
+  const any = (await admin.get('/api/prospects')).body.items[0];
+  const base = (await admin.get(`/api/prospects/${any.id}`)).body.messages.primerContacto;
+  const r1 = (await admin.get(`/api/prospects/${any.id}/mensaje?tipo=primerContacto&variante=1`)).body;
+  assert.ok(r1.variante >= 1);
+  assert.notEqual(r1.texto, base, 'la nueva versión es distinta de la actual');
+  const r2 = (await admin.get(`/api/prospects/${any.id}/mensaje?tipo=primerContacto&variante=${r1.variante + 1}`)).body;
+  assert.notEqual(r2.texto, r1.texto);
+  const corto = (await admin.get(`/api/prospects/${any.id}/mensaje?tipo=primerContactoCorto&variante=1`)).body;
+  assert.equal(corto.tipo, 'primerContactoCorto');
+  assert.equal((await admin.get(`/api/prospects/${any.id}/mensaje?tipo=otro&variante=1`)).status, 400);
+  assert.equal((await admin.get('/api/prospects/no-existe/mensaje?tipo=seguimiento&variante=1')).status, 404);
+  // Un vendedor no puede generar mensajes de prospectos ajenos.
+  const seller = await loggedClient(app.base, app.users, 'nico', 'vendedor', 'Nico');
+  assert.equal((await seller.get(`/api/prospects/${any.id}/mensaje?tipo=primerContacto&variante=1`)).status, 404);
+});
+
 test('seguridad, cabeceras y archivos estáticos', async () => {
   const anon = new Client(app.base);
   const page = await anon.req('GET', '/');

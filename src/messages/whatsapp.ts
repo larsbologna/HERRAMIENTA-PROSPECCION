@@ -105,16 +105,17 @@ const SERVICE_PLAIN: Record<ServiceId, string> = {
   website: 'hacerles una web simple y rápida, pensada para el celular, con el WhatsApp a un toque',
   'whatsapp-ai-bot': 'ponerles un asistente en WhatsApp que conteste al toque las preguntas de siempre, a cualquier hora',
   'support-automation': 'automatizar las respuestas que se repiten para que no se les escape ninguna consulta',
-  'booking-system': 'que los clientes puedan reservar o sacar turno online, sin llamar',
-  'admin-dashboard': 'un panel simple para ver consultas, reseñas y reservas en un solo lugar',
+  'booking-system': 'armarles un sistema para que los clientes reserven o saquen turno online, sin llamar',
+  'admin-dashboard': 'armarles un panel simple para ver consultas, reseñas y reservas en un solo lugar',
 };
 
-function hooksFor(i: MessageInput): string[] {
-  const out: string[] = [];
+/** Observaciones de los problemas principales, con el problema del que salen. */
+function hooksFor(i: MessageInput, max = 3): Array<{ text: string; problem: SalesArgument }> {
+  const out: Array<{ text: string; problem: SalesArgument }> = [];
   for (const p of i.problems) {
     const h = HOOKS[p.findingId]?.(i);
-    if (h && !out.includes(h)) out.push(h);
-    if (out.length === 3) break;
+    if (h && !out.some((o) => o.text === h)) out.push({ text: h, problem: p });
+    if (out.length === max) break;
   }
   return out;
 }
@@ -123,61 +124,104 @@ function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-export function composeMessages(i: MessageInput, seller: Seller): ProspectMessages {
+/**
+ * Arma los tres mensajes. `variant` = 0 es la versión de siempre del prospecto; cada número
+ * mayor genera otra versión (otro saludo, otro problema de arranque, otra oferta, otro cierre),
+ * para el botón "Otra versión". Siempre usa solo problemas reales detectados en la ficha.
+ */
+export function composeMessages(i: MessageInput, seller: Seller, variant = 0): ProspectMessages {
+  const v = Math.max(0, Math.floor(variant) || 0);
+  const seed = v ? `${i.seed}#${v}` : i.seed;
+  // Con variante > 0 se suman frases alternativas a cada parte del mensaje.
+  const opts = <T>(base: readonly T[], extra: readonly T[]): readonly T[] => (v ? [...base, ...extra] : base);
   const me = seller.sellerName?.trim() || '[tu nombre]';
   const city = seller.sellerCity?.trim();
   const business = seller.sellerBusiness?.trim();
   const link = sellerLinkUrl(seller.sellerLink);
-  const hooks = hooksFor(i);
+
+  // Problemas de arranque: en otras versiones se rota cuál de los principales abre el mensaje.
+  const all = hooksFor(i, v ? 4 : 3);
+  const shift = v && all.length > 1 ? v % Math.min(all.length, 3) : 0;
+  const lead = [...all.slice(shift), ...all.slice(0, shift)];
+  const hooks = lead.map((h) => h.text);
   const main = hooks[0] ?? `estuve mirando cómo aparece ${i.name} en Google y vi un par de cosas que les están haciendo perder consultas`;
   const second = hooks[1];
-  // Una sola propuesta de valor: el servicio que mejor encaja.
-  const topService = i.services.find((s) => s.priority !== 'baja');
-  const offer = topService ? SERVICE_PLAIN[topService.id] : 'mejorar cómo aparecen en Google y cómo responden las consultas';
 
-  const saludo = pick(['Hola, ¿cómo va?', 'Hola, ¿qué tal?', 'Buenas, ¿cómo andan?'], i.seed, 's');
-  const quien = pick([`¿Hablo con ${i.name}?`, `¿Este es el WhatsApp de ${i.name}?`], i.seed, 'q');
+  // Una sola propuesta de valor: el servicio que mejor encaja. En otras versiones, el que
+  // resuelve el problema con el que arranca el mensaje (así la oferta siempre tiene sentido).
+  const candidates = i.services.filter((s) => s.priority !== 'baja');
+  const leadService = v ? lead[0]?.problem.serviceIds.find((id) => id in SERVICE_PLAIN) : undefined;
+  const offerId = leadService ?? candidates[0]?.id;
+  const offer = offerId ? SERVICE_PLAIN[offerId] : 'mejorar cómo aparecen en Google y cómo responden las consultas';
+
+  const saludo = pick(opts(['Hola, ¿cómo va?', 'Hola, ¿qué tal?', 'Buenas, ¿cómo andan?'], ['Hola, buen día.', 'Hola, ¿todo bien?']), seed, 's');
+  const quien = pick(opts([`¿Hablo con ${i.name}?`, `¿Este es el WhatsApp de ${i.name}?`], [`¿Me comunico con ${i.name}?`]), seed, 'q');
   const intro = seller.sellerIntro?.trim().replace(/([^.!?])$/, '$1.')
     || `${business ? `Desde ${business} trabajo` : 'Trabajo'} con negocios de la zona en todo lo que es Google Maps, reseñas y atención por WhatsApp.`;
-  const presentacion = `Soy ${me}${city ? `, de ${city}` : ''}. ${intro}`;
+  const presentacion = pick(opts([`Soy ${me}${city ? `, de ${city}` : ''}. ${intro}`], [`Te escribe ${me}${city ? `, de ${city}` : ''}. ${intro}`]), seed, 'p');
+  const motivo = pick(
+    opts([`Te escribo porque ${main}.`], [`Estuve mirando cómo aparece ${i.name} en Google: ${main}.`, `Te cuento algo que vi: ${main}.`]),
+    seed, 'm',
+  );
+  const ademas = second ? pick(opts([` Además, ${second}.`], [` También ${second}.`, ` Y otra cosa: ${second}.`]), seed, 'a') : '';
+  const arreglo = pick(
+    opts(['Se resuelve más fácil de lo que parece.', 'Tiene arreglo y no es complicado.'], ['Es algo que se acomoda rápido.', 'La buena noticia es que tiene solución y no lleva mucho tiempo.']),
+    seed, 'r',
+  );
+  const dedico = pick(opts([`Justamente me dedico a esto: puedo ${offer}.`], [`Yo me dedico a eso: puedo ${offer}.`, `A esto me dedico, y lo que haría es ${offer}.`]), seed, 'o');
   const cierre = pick(
-    [
-      '¿Te puedo mandar un audio de 2 minutos contándote lo que vi?',
-      '¿Te paso por acá lo que encontré? Son 3 o 4 cosas puntuales.',
-      'Si te sirve, te muestro en 10 minutos cómo quedaría. ¿Te queda bien en algún momento de esta semana?',
-    ],
-    i.seed,
-    'c',
+    opts(
+      [
+        '¿Te puedo mandar un audio de 2 minutos contándote lo que vi?',
+        '¿Te paso por acá lo que encontré? Son 3 o 4 cosas puntuales.',
+        'Si te sirve, te muestro en 10 minutos cómo quedaría. ¿Te queda bien en algún momento de esta semana?',
+      ],
+      ['¿Te puedo llamar 5 minutos mañana y te cuento?', '¿Querés que te mande un ejemplo de cómo quedaría para ustedes?'],
+    ),
+    seed, 'c',
   );
 
   const primerContacto = [
     `${saludo} ${quien}`,
     presentacion,
-    `Te escribo porque ${main}.${second ? ` Además, ${second}.` : ''}`,
-    `${pick(['Se resuelve más fácil de lo que parece.', 'Tiene arreglo y no es complicado.'], i.seed, 'r')} Justamente me dedico a esto: puedo ${offer}.${link ? ` Podés ver lo que hago en ${link}` : ''}`,
+    `${motivo}${ademas}`,
+    `${arreglo} ${dedico}${link ? ` Podés ver lo que hago en ${link}` : ''}`,
     cierre,
   ].join('\n\n');
 
   const primerContactoCorto = [
     `${saludo} Soy ${me}${business ? `, de ${business}` : ''}. Trabajo con negocios en Google Maps y WhatsApp.`,
     `${capitalize(main)}.`,
-    pick(['¿Te cuento cómo lo resolvería?', '¿Te interesa que te muestre cómo se arregla?'], i.seed, 'k'),
+    pick(opts(['¿Te cuento cómo lo resolvería?', '¿Te interesa que te muestre cómo se arregla?'], ['¿Querés que te pase cómo lo resolvería?', '¿Te sirve que te cuente más?']), seed, 'k'),
   ].join('\n\n');
 
   const dato = second ?? hooks[2] ?? `hay ${i.problems.length} cosas puntuales en la ficha y la web que se pueden mejorar rápido`;
   const seguimiento = [
-    pick(['Hola, ¿cómo va?', 'Buenas, ¿qué tal?'], i.seed, 'f'),
-    `Te escribí hace unos días por lo de ${i.name} en Google. Te dejo un dato más: ${dato}.`,
-    'Si te interesa lo vemos cuando puedas, y si no es el momento, no pasa nada: avisame y no te escribo más.',
+    pick(opts(['Hola, ¿cómo va?', 'Buenas, ¿qué tal?'], ['Hola de nuevo, ¿cómo va?']), seed, 'f'),
+    pick(
+      opts([`Te escribí hace unos días por lo de ${i.name} en Google. Te dejo un dato más: ${dato}.`], [`Retomo lo que te comenté de ${i.name} en Google. Un dato más que vi: ${dato}.`]),
+      seed, 'g',
+    ),
+    pick(
+      opts(
+        ['Si te interesa lo vemos cuando puedas, y si no es el momento, no pasa nada: avisame y no te escribo más.'],
+        ['Si querés lo charlamos 10 minutos esta semana; y si no es buen momento, avisame y quedamos ahí.'],
+      ),
+      seed, 'z',
+    ),
   ].join('\n\n');
 
   return { primerContacto, primerContactoCorto, seguimiento };
 }
 
+export const MESSAGE_KEYS = ['primerContacto', 'primerContactoCorto', 'seguimiento'] as const;
+export type MessageKey = (typeof MESSAGE_KEYS)[number];
+
 /** Mensajes para un prospecto guardado en el CRM. */
 export function buildMessages(
   p: { id: string; name: string; verticalId: string | null; verticalLabel: string | null; problems: SalesArgument[]; services: ServiceRecommendation[]; analysis?: { profile?: BusinessProfile; website?: WebsiteAnalysis; audit?: AuditResult } },
   seller: Seller,
+  variant = 0,
 ): ProspectMessages {
   return composeMessages(
     {
@@ -192,5 +236,6 @@ export function buildMessages(
       metrics: p.analysis?.audit?.metrics,
     },
     seller,
+    variant,
   );
 }

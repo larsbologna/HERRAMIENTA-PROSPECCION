@@ -7,12 +7,14 @@ import * as pipeline from './views/pipeline.js';
 import * as audits from './views/audits.js';
 import * as metrics from './views/metrics.js';
 import * as settings from './views/settings.js';
+import * as generator from './views/generator.js';
 import { renderLogin, renderSetup } from './views/auth.js';
 
 /** Secciones del menú. `roles` limita quién las ve (sin roles = todos). */
 const NAV = [
   { path: '/', label: 'Dashboard', icon: 'dashboard', view: dashboard },
   { path: '/prospectos', label: 'Prospectos', vendedorLabel: 'Mis prospectos', icon: 'users', view: prospects },
+  { path: '/generador', label: 'Generador', icon: 'zap', view: generator },
   { path: '/pipeline', label: 'Pipeline', icon: 'kanban', view: pipeline },
   { path: '/auditorias', label: 'Auditorías', icon: 'audit', view: audits, roles: ['admin'] },
   { path: '/metricas', label: 'Métricas', icon: 'chart', view: metrics, roles: ['admin'] },
@@ -125,7 +127,11 @@ function openAccount() {
 }
 
 /** Modal de análisis: pegar enlace → progreso → abre el prospecto guardado. */
-export function openAnalyze(prefill = '', { autostart = false } = {}) {
+/**
+ * Modal de análisis (flujo existente). `onDone(resultado)` es opcional: lo usa el Generador de
+ * Prospectos para vincular el análisis al prospecto generado antes de abrir el informe.
+ */
+export function openAnalyze(prefill = '', { autostart = false, onDone } = {}) {
   const m = modal(`
     <h2>Nuevo análisis</h2>
     <p>Pegá el enlace de Google Maps del negocio (botón «Compartir» de la ficha). Queda guardado como prospecto${ctx.isAdmin ? '' : ' asignado a vos'}.</p>
@@ -158,6 +164,7 @@ export function openAnalyze(prefill = '', { autostart = false } = {}) {
         if (ev.tipo === 'progreso') set(ev.porcentaje, ev.mensaje);
       });
       set(100, 'Listo');
+      if (onDone) await Promise.resolve(onDone(done)).catch(() => {});
       m.lock(false);
       m.close();
       if (!done.accesible) {

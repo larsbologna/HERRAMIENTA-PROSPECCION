@@ -10,7 +10,9 @@ import { NotFoundError, endOfToday, type CrmRepository } from '../crm/repository
 import { dashboard, metrics, personalKpis } from '../crm/stats.js';
 import { ACTIVITY_TYPES, MANUAL_ACTIVITY_TYPES, STATUSES, isStatus, type FollowupStatus, type ProspectFilter, type Settings } from '../crm/types.js';
 import { DEFAULT_VERTICAL, VERTICALS } from '../domain/verticals.js';
-import { buildMessages } from '../messages/whatsapp.js';
+import { buildMessages, MESSAGE_KEYS, type MessageKey } from '../messages/whatsapp.js';
+import { generateProspects as defaultGenerate, MAX_CANTIDAD } from '../generator/generator.js';
+import { GENERATOR_STATUSES, type GeneratorRepository } from '../generator/repository.js';
 import { SERVICE_CATALOG } from '../proposal/services.js';
 import {
   HttpError,
@@ -34,6 +36,10 @@ export interface AppDeps {
   webDir?: string;
   /** Registro de actividad en la consola (se silencia en tests). */
   log?: (message: string) => void;
+  /** Generador de Prospectos (historial persistente). Sin él, sus rutas responden 503. */
+  generator?: GeneratorRepository;
+  /** Función de generación (se sustituye en tests para usar fichas simuladas). */
+  generate?: typeof defaultGenerate;
   /** Sobrescribe opciones de proxy/seguridad (tests). */
   security?: Partial<Pick<typeof config, 'trustProxy' | 'publicUrl' | 'cookieSecure' | 'setupToken'>>;
 }
@@ -79,6 +85,8 @@ export function createApp(deps: AppDeps): http.Server {
   const limiter = new LoginRateLimiter();
   const ipLimiter = new LoginRateLimiter(30);
   let busy: { userName: string } | null = null;
+  let generating: { userName: string } | null = null;
+  const runGenerate = deps.generate ?? defaultGenerate;
 
   const isAdmin = (u: User) => u.role === 'admin';
   const secureCookie = (req: http.IncomingMessage) => (sec.cookieSecure === 'true' ? true : sec.cookieSecure === 'false' ? false : isHttps(req, sec.trustProxy));
@@ -98,6 +106,15 @@ export function createApp(deps: AppDeps): http.Server {
   const ensureAccess = (u: User, prospectId: string) => {
     const assignee = repo.assigneeOf(prospectId);
     if (assignee === undefined || (!isAdmin(u) && assignee !== u.id)) throw new NotFoundError('Prospecto no encontrado.');
+  };
+  const needGenerator = (): GeneratorRepository => {
+    if (!deps.generator) throw new HttpError(503, 'El Generador de Prospectos no está disponible.');
+    return deps.generator;
+  };
+  /** Un vendedor solo ve y modifica los prospectos que generó él; el admin, todos. */
+  const ensureGenerated = (u: User, id: string) => {
+    const owner = needGenerator().ownerOf(id);
+    if (owner === undefined || (!isAdmin(u) && owner !== u.id)) throw new NotFoundError('Prospecto generado no encontrado.');
   };
   const detailFor = (u: User, id: string) => {
     const detail = repo.get(id);
@@ -227,6 +244,82 @@ export function createApp(deps: AppDeps): http.Server {
       return undefined;
     })
 
+    // ================================================================ generador de prospectos
+    // Busca negocios nuevos en Google Maps (rubro + zona), sin repetir nunca uno ya entregado.
+    .on('POST', '/api/generador/generar', async ({ req, res, user }) => {
+      const gen = needGenerator();
+      if (generating) throw new HttpError(409, `Ya hay una generación en curso (${generating.userName}). Esperá a que termine.`);
+      const body = await readJson<{ rubro?: unknown; zona?: unknown; cantidad?: unknown }>(req);
+      const rubro = String(body.rubro ?? '').trim().replace(/\s+/g, ' ');
+      const zona = String(body.zona ?? '').trim().replace(/\s+/g, ' ');
+      const cantidad = Number(body.cantidad);
+      if (!rubro || rubro.length > 80) throw new HttpError(400, 'Indicá el rubro (ej.: Barberías).');
+      if (!zona || zona.length > 80) throw new HttpError(400, 'Indicá la ciudad o zona (ej.: Quilmes).');
+      if (!Number.isInteger(cantidad) || cantidad < 1 || cantidad > MAX_CANTIDAD) throw new HttpError(400, `La cantidad tiene que ser entre 1 y ${MAX_CANTIDAD}.`);
+
+      generating = { userName: user.name };
+      const controller = new AbortController();
+      res.on('close', () => {
+        if (!res.writableFinished) controller.abort();
+      });
+      res.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no' });
+      const line = (obj: unknown) => {
+        if (!res.writableEnded) res.write(`${JSON.stringify(obj)}\n`);
+      };
+      const heartbeat = setInterval(() => line({ tipo: 'latido' }), 15_000);
+      const runId = gen.startRun({ rubro, zona, requested: cantidad, userId: user.id });
+      log(`→ ${user.username} genera ${cantidad} × "${rubro}" en ${zona}`);
+      try {
+        const result = await runGenerate({ rubro, zona, cantidad }, {
+          known: gen.knownKeys(),
+          signal: controller.signal,
+          onProgress: (p) => line({ tipo: 'progreso', porcentaje: Math.min(p.percent, 98), mensaje: p.message }),
+        });
+        const items = gen.saveRun(runId, { rubro, zona, userId: user.id }, result);
+        repo.logSystem('generador', user.id, `Generó ${items.length} prospecto(s) de "${rubro}" en ${zona} (pedidos: ${cantidad})`);
+        line({ tipo: 'progreso', porcentaje: 100, mensaje: result.message });
+        line({ tipo: 'resultado', runId, encontrados: items.length, pedidos: cantidad, agotado: result.exhausted, mensaje: result.message, estadisticas: result.stats, items });
+        log(`✔ generador: ${items.length}/${cantidad} "${rubro}" en ${zona}`);
+      } catch (err) {
+        line({ tipo: 'error', mensaje: (err as Error).message });
+        log(`✖ generador: ${(err as Error).message}`);
+      } finally {
+        clearInterval(heartbeat);
+        generating = null;
+        res.end();
+      }
+      return undefined;
+    })
+    .on('GET', '/api/generador', ({ query, user }) => {
+      const gen = needGenerator();
+      const owner = isAdmin(user) ? query.get('usuario') || undefined : user.id;
+      return {
+        items: gen.list({ userId: owner === 'me' ? user.id : owner, status: query.get('estado') ?? undefined, q: query.get('q') ?? undefined, runId: query.get('busqueda') ?? undefined }),
+        statuses: GENERATOR_STATUSES,
+      };
+    })
+    .on('GET', '/api/generador/estadisticas', ({ query, user }) => {
+      const owner = isAdmin(user) ? query.get('usuario') || undefined : user.id;
+      return { stats: needGenerator().stats(owner === 'me' ? user.id : owner) };
+    })
+    .on('GET', '/api/generador/busquedas', ({ user }) => ({ items: needGenerator().runs(isAdmin(user) ? undefined : user.id) }))
+    .on('PATCH', '/api/generador/:id', async ({ req, params, user }) => {
+      const gen = needGenerator();
+      ensureGenerated(user, params.id!);
+      const body = await readJson<{ status?: unknown }>(req);
+      return { item: gen.setStatus(params.id!, body.status) };
+    })
+    // Después del análisis completo (flujo existente), se vincula el prospecto del CRM.
+    .on('POST', '/api/generador/:id/vincular', async ({ req, params, user }) => {
+      const gen = needGenerator();
+      ensureGenerated(user, params.id!);
+      const body = await readJson<{ prospectId?: unknown }>(req);
+      const prospectId = String(body.prospectId ?? '');
+      if (!prospectId) throw new HttpError(400, 'Falta el análisis a vincular.');
+      ensureAccess(user, prospectId);
+      return { item: gen.linkProspect(params.id!, prospectId) };
+    })
+
     // ================================================================ prospectos
     .on('GET', '/api/prospects', ({ query, user }) => {
       const num = (k: string) => (query.has(k) && query.get(k) !== '' ? Number(query.get(k)) : undefined);
@@ -247,6 +340,23 @@ export function createApp(deps: AppDeps): http.Server {
     .on('GET', '/api/prospects/:id', ({ params, user }) => {
       ensureAccess(user, params.id!);
       return detailFor(user, params.id!);
+    })
+    // "Otra versión" del mensaje de WhatsApp: devuelve una variante distinta de la anterior.
+    .on('GET', '/api/prospects/:id/mensaje', ({ params, query, user }) => {
+      ensureAccess(user, params.id!);
+      const tipo = query.get('tipo') ?? 'primerContacto';
+      if (!(MESSAGE_KEYS as readonly string[]).includes(tipo)) throw new HttpError(400, 'Tipo de mensaje inválido.');
+      const key = tipo as MessageKey;
+      const requested = Math.max(1, Math.min(10_000, Number.parseInt(query.get('variante') ?? '1', 10) || 1));
+      const detail = repo.get(params.id!);
+      const seller = sellerFor(user);
+      const previous = buildMessages(detail, seller, requested - 1)[key];
+      // Si la combinación coincide con la anterior, se prueba la siguiente (hasta 12 intentos).
+      for (let v = requested; v < requested + 12; v++) {
+        const text = buildMessages(detail, seller, v)[key];
+        if (text !== previous) return { tipo: key, variante: v, texto: text };
+      }
+      return { tipo: key, variante: requested, texto: buildMessages(detail, seller, requested)[key] };
     })
     .on('PATCH', '/api/prospects/:id', async ({ req, params, user }) => {
       ensureAccess(user, params.id!);
