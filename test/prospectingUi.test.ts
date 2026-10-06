@@ -108,6 +108,25 @@ test('20. "Copiar mensaje", WhatsApp en una sola pestaña, Contactado → siguie
   await page.goto(`${app.base}/prospeccion/rapida?campana=${encodeURIComponent(campaignId)}`);
   await page.waitForSelector('.rq-card');
 
+  // Tamaños del mensaje (completo, mediano, corto), "Otra versión" y por qué dice lo que dice.
+  assert.deepEqual(await page.$$eval('.rq-tabs [data-k]', (bs) => bs.map((b) => b.textContent)), ['Completo', 'Mediano', 'Corto']);
+  const words = (t: string) => t.split(/\s+/).filter(Boolean).length;
+  const completo = await page.inputValue('#rq-text');
+  await page.click('.rq-tabs [data-k="primerContactoMedio"]');
+  const medio = await page.inputValue('#rq-text');
+  await page.click('.rq-tabs [data-k="primerContactoCorto"]');
+  const corto = await page.inputValue('#rq-text');
+  assert.ok(words(corto) < words(medio) && words(medio) < words(completo), `${words(corto)} < ${words(medio)} < ${words(completo)}`);
+  assert.ok(words(completo) >= 80 && words(completo) <= 150);
+  for (const t of [completo, medio, corto]) assert.match(t, /\?$/, 'termina con una pregunta');
+  assert.match(await page.textContent('#rq-insight') ?? '', /Motivo comercial[\s\S]*Dolor económico[\s\S]*Beneficio comunicado/);
+  await page.click('.rq-tabs [data-k="primerContacto"]');
+  await page.click('#rq-regen');
+  await page.waitForFunction((t) => (document.querySelector('#rq-text') as HTMLTextAreaElement).value !== t, completo);
+  const otra = await page.inputValue('#rq-text');
+  assert.ok(words(otra) >= 80 && words(otra) <= 150, 'la otra versión respeta el largo');
+  assert.equal(await page.getAttribute('#rq-wa', 'href'), (await page.getAttribute('#rq-wa', 'href'))!.replace(/text=.*/, `text=${encodeURIComponent(otra)}`), 'WhatsApp lleva la versión nueva');
+
   // Copiar mensaje: lo que queda en el portapapeles es exactamente el mensaje (editable) del prospecto.
   const first = await page.textContent('.rq-name');
   await page.fill('#rq-text', `${await page.inputValue('#rq-text')}\n\n¿Sí? Ñandú 💈`);

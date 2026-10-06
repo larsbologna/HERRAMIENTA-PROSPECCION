@@ -1,7 +1,7 @@
 import { api } from '../api.js';
 import {
   $, $$, IMP, autoGrow, confirmDialog, modal, copyText, date, dateTime, esc, icon, money, moneyShort, number, scoreClass,
-  statusLabel, statusOptions, toast, waMeUrl, waWebUrl, waPhone, WA_TARGET,
+  statusLabel, statusOptions, toast, waMeUrl, waWebUrl, waPhone, WA_TARGET, messageInsightHtml,
 } from '../ui.js';
 
 function ring(score) {
@@ -224,7 +224,7 @@ const igUrl = (p) => p.analysis?.channels?.instagramUrl;
 
 function selectionHtml(sel) {
   if (!sel?.length) return '<div class="msg-sel muted">No hay problemas confirmados para usar: el mensaje no inventa ninguno. Revisá los "Probables" o verificá la presencia online.</div>';
-  return `<div class="msg-sel"><div class="label">El mensaje usa (solo confirmados)</div><ol>${sel.map((x) => `<li>${esc(x.text.split(/(?<=\.)\s/)[0])}</li>`).join('')}</ol></div>`;
+  return `<div class="msg-sel"><div class="label">Oportunidad que usa el mensaje (solo confirmadas)</div><ol>${sel.map((x) => `<li>${esc(x.text.split(/(?<=\.)\s/)[0])}</li>`).join('')}</ol></div>`;
 }
 
 function messagesCard(p) {
@@ -235,8 +235,10 @@ function messagesCard(p) {
     <div class="card-head"><h2>Mensaje de contacto</h2>
       <button class="btn btn-sm" id="regen" title="Generar otra versión de este mensaje">${icon('refresh')}Otra versión</button></div>
     <div id="msg-sel">${selectionHtml(p.messageSelection)}</div>
-    <div class="tabs" role="tablist">
-      <button class="on" data-msg="primerContacto">1er contacto</button>
+    <div id="msg-insight">${messageInsightHtml(p.messageInsight)}</div>
+    <div class="tabs" role="tablist" aria-label="Tamaño del mensaje">
+      <button class="on" data-msg="primerContacto">Completo</button>
+      <button data-msg="primerContactoMedio">Mediano</button>
       <button data-msg="primerContactoCorto">Corto</button>
       <button data-msg="seguimiento">Seguimiento</button>
     </div>
@@ -325,7 +327,7 @@ export async function render(main, { id }, ctx) {
   let p = await api.prospect(id);
   let msgKey = 'primerContacto';
   // "Otra versión": versión pedida y texto generado por tipo de mensaje (se conservan al recargar el perfil).
-  const variants = { primerContacto: 0, primerContactoCorto: 0, seguimiento: 0 };
+  const variants = { primerContacto: 0, primerContactoMedio: 0, primerContactoCorto: 0, seguimiento: 0 };
   const generated = {};
   let edited = false;
 
@@ -488,7 +490,8 @@ export async function render(main, { id }, ctx) {
         const r = await api.messageVariant(id, msgKey, variants[msgKey] + 1);
         variants[msgKey] = r.variante;
         generated[msgKey] = r.texto;
-        if (msgKey === 'primerContacto' && r.seleccion) $('#msg-sel', main).innerHTML = selectionHtml(r.seleccion);
+        if (msgKey !== 'seguimiento' && r.seleccion) $('#msg-sel', main).innerHTML = selectionHtml(r.seleccion);
+        if (msgKey !== 'seguimiento' && r.insight) $('#msg-insight', main).innerHTML = messageInsightHtml(r.insight);
         showMessage();
         const ta = $('#msg', main);
         ta.classList.remove('flash');
@@ -502,7 +505,7 @@ export async function render(main, { id }, ctx) {
     };
     $('#copy', main).onclick = async () => { await copyText($('#msg', main).value); toast('Mensaje copiado'); };
     $('#sent', main).onclick = async () => {
-      const names = { primerContacto: 'primer contacto', primerContactoCorto: 'primer contacto (corto)', seguimiento: 'seguimiento' };
+      const names = { primerContacto: 'primer contacto (completo)', primerContactoMedio: 'primer contacto (mediano)', primerContactoCorto: 'primer contacto (corto)', seguimiento: 'seguimiento' };
       try {
         await flushNotes();
         await api.addActivity(id, 'whatsapp', `Mensaje enviado: ${names[msgKey]}\n\n${$('#msg', main).value}`);

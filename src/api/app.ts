@@ -10,7 +10,7 @@ import { NotFoundError, endOfToday, type CrmRepository } from '../crm/repository
 import { dashboard, metrics, personalKpis } from '../crm/stats.js';
 import { ACTIVITY_TYPES, MANUAL_ACTIVITY_TYPES, STATUSES, isStatus, type FollowupStatus, type ProspectFilter, type Settings } from '../crm/types.js';
 import { DEFAULT_VERTICAL, VERTICALS } from '../domain/verticals.js';
-import { buildMessages, buildSelection, MESSAGE_KEYS, type MessageKey } from '../messages/whatsapp.js';
+import { buildInsight, buildMessages, buildSelection, MESSAGE_KEYS, type MessageKey } from '../messages/whatsapp.js';
 import { generateProspects as defaultGenerate, MAX_CANTIDAD } from '../generator/generator.js';
 import { GENERATOR_STATUSES, type GeneratorRepository } from '../generator/repository.js';
 import { catalogFrom } from '../proposal/catalog.js';
@@ -145,7 +145,7 @@ export function createApp(deps: AppDeps): http.Server {
   const detailFor = (u: User, id: string) => {
     const detail = repo.get(id);
     const seller = sellerFor(u);
-    return { ...detail, messages: buildMessages(detail, seller), messageSelection: buildSelection(detail, seller) };
+    return { ...detail, messages: buildMessages(detail, seller), messageSelection: buildSelection(detail, seller), messageInsight: buildInsight(detail, seller) };
   };
 
   /** La búsqueda en curso la ve quien la inició (y un administrador). */
@@ -179,6 +179,7 @@ export function createApp(deps: AppDeps): http.Server {
       websiteUrl: ownWeb ?? null,
       opportunities: a?.proposal ? opportunityProfile(a) : null,
       messages: buildMessages(d, seller),
+      messageInsight: buildInsight(d, seller),
     };
   };
 
@@ -548,9 +549,9 @@ export function createApp(deps: AppDeps): http.Server {
       // Si la combinación coincide con la anterior, se prueba la siguiente (hasta 12 intentos).
       for (let v = requested; v < requested + 12; v++) {
         const text = buildMessages(detail, seller, v)[key];
-        if (text !== previous) return { tipo: key, variante: v, texto: text, seleccion: buildSelection(detail, seller, v) };
+        if (text !== previous) return { tipo: key, variante: v, texto: text, seleccion: buildSelection(detail, seller, v), insight: buildInsight(detail, seller, v), mensajes: buildMessages(detail, seller, v) };
       }
-      return { tipo: key, variante: requested, texto: buildMessages(detail, seller, requested)[key], seleccion: buildSelection(detail, seller, requested) };
+      return { tipo: key, variante: requested, texto: buildMessages(detail, seller, requested)[key], seleccion: buildSelection(detail, seller, requested), insight: buildInsight(detail, seller, requested), mensajes: buildMessages(detail, seller, requested) };
     })
     .on('PATCH', '/api/prospects/:id', async ({ req, params, user }) => {
       ensureAccess(user, params.id!);

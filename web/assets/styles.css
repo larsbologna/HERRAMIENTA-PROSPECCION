@@ -718,3 +718,8 @@ tr.svc-off td { opacity: .55; }
 .rq-pick .btn { height: auto; min-height: 36px; white-space: normal; text-align: left; }
 @media (max-width: 640px) { #rq-next { margin-left: 0; } .rq-result .rq-big { flex: 1 1 100%; } .rq-title { order: -1; flex: 1 1 100%; } }
 .gen-footlink { font-size: 12.5px; margin: 14px 2px 0; }
+.msg-insight { display: grid; gap: 6px; margin: 0 0 12px; padding: 10px 12px; border-radius: var(--r); border: 1px dashed rgba(93, 214, 44, .35); background: rgba(93, 214, 44, .04); font-size: 12.5px; color: var(--text-2); overflow-wrap: anywhere; }
+.msg-insight .label { display: block; margin-bottom: 1px; }
+.rq-msg-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.rq-msg-tools .rq-tabs { margin-bottom: 0; }
+.rq-msg-head { margin-bottom: 8px; }
