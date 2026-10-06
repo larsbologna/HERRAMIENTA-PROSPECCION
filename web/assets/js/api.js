@@ -52,6 +52,8 @@ export const api = {
 
   // Generador de Prospectos
   generate: (body, onEvent) => streamNdjson('/api/generador/generar', body, onEvent),
+  /** "Verificar presencia online": vuelve a revisar web e Instagram del prospecto (progreso en vivo). */
+  verifyPresence: (id, onEvent) => streamNdjson(`/api/prospects/${encodeURIComponent(id)}/verificar`, {}, onEvent),
   generated: (params = {}) => request('GET', '/api/generador?' + new URLSearchParams(Object.entries(params).filter(([, v]) => v !== '' && v != null))),
   generatorStats: (params = {}) => request('GET', '/api/generador/estadisticas?' + new URLSearchParams(Object.entries(params).filter(([, v]) => v !== '' && v != null))),
   generatorRuns: () => request('GET', '/api/generador/busquedas'),

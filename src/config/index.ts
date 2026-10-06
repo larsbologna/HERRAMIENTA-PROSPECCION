@@ -46,6 +46,10 @@ export const config = {
   },
   /** Tiempo máximo de un análisis completo: pasado este tiempo se cancela. */
   analysisTimeoutMs: Number(env('ANALYSIS_TIMEOUT_MS', '180000')),
+  /** Revisar el perfil público de Instagram durante el análisis ("false" para desactivar). */
+  instagramCheck: env('INSTAGRAM_CHECK', 'true') !== 'false',
+  /** Solo para pruebas: Instagram simulado. */
+  instagramBaseUrl: process.env.INSTAGRAM_BASE_URL || undefined,
   /** Tiempo máximo de una generación de prospectos (Generador): al cumplirse devuelve lo encontrado. */
   generatorTimeoutMs: Number(env('GENERATOR_TIMEOUT_MS', '900000')),
 } as const;

@@ -1,5 +1,8 @@
 import type { Browser } from 'playwright';
 import { buildContext, runAudit } from './auditor/auditor.js';
+import { buildChannelReport, type ChannelReport } from './channels/crossCheck.js';
+import { analyzeInstagram, type InstagramAnalysis } from './channels/instagram.js';
+import { isInstagram, isOwnWebsite } from './channels/links.js';
 import { config } from './config/index.js';
 import type { AnalysisResult, BusinessProfile, WebsiteAnalysis } from './domain/types.js';
 import { buildBudget } from './proposal/budget.js';
@@ -21,6 +24,8 @@ export interface AnalyzeOptions {
   /** Solo para tests con fichas simuladas. */
   skipUrlValidation?: boolean;
   timeoutMs?: number;
+  /** Revisión de Instagram: desactivar o apuntar a un Instagram simulado (tests). */
+  instagram?: { enabled?: boolean; baseUrl?: string };
 }
 
 /**
@@ -48,7 +53,7 @@ export async function analyze(url: string, opts: AnalyzeOptions = {}): Promise<A
   opts.signal?.addEventListener('abort', onAbort, { once: true });
 
   try {
-    return await run(browser, url, opts.onProgress ?? (() => {}), started);
+    return await run(browser, url, opts.onProgress ?? (() => {}), started, opts.instagram);
   } catch (err) {
     throw new Error(stopReason ?? friendlyError(err as Error));
   } finally {
@@ -58,7 +63,7 @@ export async function analyze(url: string, opts: AnalyzeOptions = {}): Promise<A
   }
 }
 
-async function run(browser: Browser, url: string, report: (p: Progress) => void, started: number): Promise<AnalysisResult> {
+async function run(browser: Browser, url: string, report: (p: Progress) => void, started: number, instagramOpts?: AnalyzeOptions['instagram']): Promise<AnalysisResult> {
   // Avance de la barra durante la lectura de Maps (los mensajes los emite el scraper).
   let mapsPercent = 5;
   report({ percent: mapsPercent, message: 'Abriendo Google Maps…' });
@@ -88,8 +93,11 @@ async function run(browser: Browser, url: string, report: (p: Progress) => void,
     });
   }
 
+  report({ percent: 78, message: 'Revisando Instagram y cruzando canales…' });
+  const channels = await verifyChannels(browser, profile, website, instagramOpts, (m) => report({ percent: 80, message: m }));
+
   report({ percent: 85, message: 'Detectando problemas y oportunidades…' });
-  const result = buildAnalysis(url, profile, website, { durationMs: Date.now() - started });
+  const result = buildAnalysis(url, profile, website, { durationMs: Date.now() - started }, channels);
   report({ percent: 100, message: 'Análisis completado.' });
   return result;
 }
@@ -103,8 +111,9 @@ export function buildAnalysis(
   profile: BusinessProfile,
   website: WebsiteAnalysis | undefined,
   meta: { durationMs: number; analyzedAt?: string },
+  channels?: ChannelReport,
 ): AnalysisResult {
-  const ctx = buildContext(profile, website);
+  const ctx = buildContext(profile, website, undefined, channels);
   const audit = runAudit(ctx);
   const proposal = buildProposal(ctx, audit);
   const budget = buildBudget(proposal.services);
@@ -118,7 +127,67 @@ export function buildAnalysis(
     audit,
     proposal,
     budget,
+    ...(channels ? { channels } : {}),
   };
+}
+
+/**
+ * Revisa los canales del negocio fuera de Google Maps (Instagram y la web que enlaza) y arma la
+ * verificación cruzada. Nunca falla: si algo no se puede revisar, queda como "no verificado".
+ */
+export async function verifyChannels(
+  browser: Browser,
+  profile: BusinessProfile,
+  website: WebsiteAnalysis | undefined,
+  opts: AnalyzeOptions['instagram'] = {},
+  progress: (m: string) => void = () => {},
+): Promise<ChannelReport> {
+  const igUrl = [...profile.socialLinks, profile.website ?? '', ...(website?.reachable ? website.socialLinks : [])].find((l) => l && isInstagram(l));
+  let ig: InstagramAnalysis | undefined;
+  if (igUrl && opts.enabled !== false && config.instagramCheck) {
+    progress('Revisando el perfil de Instagram…');
+    ig = await analyzeInstagram(browser, igUrl, { baseUrl: opts.baseUrl ?? config.instagramBaseUrl }).catch(() => undefined);
+  }
+  // Web que solo aparece en Instagram: ¿carga? (para no recomendar vincular una web caída).
+  let igWebsiteReachable: boolean | undefined;
+  const ownOnMaps = profile.website && isOwnWebsite(profile.website);
+  if (ig?.status === 'ok' && ig.website && !ownOnMaps) {
+    progress('Comprobando la web enlazada en Instagram…');
+    const ctx = await browser.newContext();
+    try {
+      const res = await ctx.request.get(ig.website, { timeout: 15_000, failOnStatusCode: false, maxRedirects: 5 });
+      igWebsiteReachable = res.status() < 400;
+    } catch {
+      igWebsiteReachable = false;
+    } finally {
+      await ctx.close().catch(() => {});
+    }
+  }
+  return buildChannelReport(profile, website, ig, { igWebsiteReachable });
+}
+
+/**
+ * "Verificar presencia online": vuelve a revisar web e Instagram con los datos de Google ya leídos
+ * y rearma argumentos y mensajes, para no usar información vieja (sin volver a leer Google Maps).
+ */
+export async function reverifyAnalysis(previous: AnalysisResult, opts: Pick<AnalyzeOptions, 'onProgress' | 'instagram'> = {}): Promise<AnalysisResult> {
+  const started = Date.now();
+  const report = opts.onProgress ?? (() => {});
+  const browser = await launchBrowser();
+  try {
+    const profile = previous.profile;
+    let website: WebsiteAnalysis | undefined = previous.website;
+    if (profile.website && isOwnWebsite(profile.website)) {
+      report({ percent: 20, message: 'Revisando la página web…' });
+      website = await analyzeWebsite(browser, profile.website, {}).catch(() => previous.website);
+    }
+    report({ percent: 60, message: 'Revisando Instagram y cruzando canales…' });
+    const channels = await verifyChannels(browser, profile, website, opts.instagram, (m) => report({ percent: 70, message: m }));
+    report({ percent: 90, message: 'Rearmando argumentos y mensajes…' });
+    return buildAnalysis(previous.url, profile, website, { durationMs: Date.now() - started }, channels);
+  } finally {
+    await browser.close().catch(() => {});
+  }
 }
 
 /** Traduce errores técnicos de Playwright a mensajes comprensibles. */

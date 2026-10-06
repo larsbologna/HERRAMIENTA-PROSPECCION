@@ -1,11 +1,14 @@
 import type { AuditResult, BusinessProfile, Finding, Opportunity, WebsiteAnalysis } from '../domain/types.js';
 import type { Vertical } from '../domain/verticals.js';
+import type { ChannelReport } from '../channels/crossCheck.js';
 
 export interface AuditContext {
   profile: BusinessProfile;
   website?: WebsiteAnalysis;
   vertical: Vertical;
   metrics: AuditResult['metrics'];
+  /** Canales verificados (Maps + web + Instagram). Sin ellos, todo se comporta como antes. */
+  channels?: ChannelReport;
 }
 
 export interface RuleOutput {

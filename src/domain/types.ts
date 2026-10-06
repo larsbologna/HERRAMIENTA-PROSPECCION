@@ -1,4 +1,14 @@
 import type { DataBasis, DataField, DataQuality } from './reliability.js';
+import type { ChannelReport } from '../channels/crossCheck.js';
+
+/**
+ * Nivel de un argumento comercial:
+ *  - confirmado: el dato está verificado y ningún otro canal lo contradice → puede ir en el mensaje.
+ *  - probable: el dato de Google es real, pero otro canal (p. ej. Instagram) no se pudo revisar y
+ *    podría contradecirlo → se muestra para revisar, NUNCA va automáticamente en el mensaje.
+ * (Los "no verificados" ni siquiera se afirman: quedan en audit.unverified.)
+ */
+export type ArgumentLevel = 'confirmado' | 'probable';
 
 /**
  * Modelo de dominio compartido por scraper, auditor, propuesta, informe y agentes.
@@ -151,6 +161,10 @@ export interface Finding {
   evidence?: string;
   /** Agente o regla que produjo el hallazgo. */
   source: string;
+  /** Nivel según la verificación cruzada de canales (sin canales = confirmado, como antes). */
+  level?: ArgumentLevel;
+  /** Por qué no está confirmado (si es probable). */
+  levelNote?: string;
 }
 
 export interface Opportunity {
@@ -195,6 +209,8 @@ export interface AuditResult {
    * en el que se basan no está verificado (no encontrado, error o confianza baja).
    */
   unverified?: Array<{ findingId: string; title: string; fields: DataField[] }>;
+  /** Problemas descartados porque otro canal muestra que el negocio YA lo tiene (no se recomienda lo que ya tiene). */
+  contradicted?: Array<{ findingId: string; title: string; reason: string }>;
 }
 
 export type ServiceId =
@@ -243,6 +259,9 @@ export interface SalesArgument {
   evidence?: string;
   /** Datos verificados en los que se apoya (valor, confianza, fuente y método). */
   basis?: DataBasis[];
+  /** confirmado = puede usarse en el mensaje; probable = solo para revisar. */
+  level?: ArgumentLevel;
+  levelNote?: string;
 }
 
 export interface Proposal {
@@ -307,4 +326,6 @@ export interface AnalysisResult {
   audit: AuditResult;
   proposal: Proposal;
   budget: Budget;
+  /** Verificación cruzada de canales (Maps + web + Instagram). Ausente en análisis anteriores. */
+  channels?: ChannelReport;
 }

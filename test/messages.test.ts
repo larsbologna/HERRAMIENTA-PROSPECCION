@@ -24,8 +24,9 @@ test('mensajes concretos, con datos reales del negocio y tono argentino', () => 
   const m = messagesFor({});
   assert.match(m.primerContacto, /Parrilla Don Tito/);
   assert.match(m.primerContacto, /Soy Martín, de Rosario/);
-  assert.match(m.primerContacto, /no encontré una web propia|no reclamada|35 reseñas/);
-  assert.match(m.primerContacto, /¿Te |¿Hablo|¿Este es/);
+  assert.match(m.primerContacto, /Estuve (revisando|mirando cómo aparece) Parrilla Don Tito/);
+  assert.match(m.primerContacto, /no encontré una página propia|no reclamada|35 reseñas|reseñas negativas/);
+  assert.match(m.primerContacto, /audio corto/);
   assert.match(m.seguimiento, /avisame y no te escribo más/);
   assert.ok(m.primerContactoCorto.length < m.primerContacto.length);
   for (const text of Object.values(m)) assert.doesNotMatch(text, BANNED);
@@ -51,7 +52,7 @@ test('ningún tipo de problema produce textos rotos', () => {
 
 test('sin nombre configurado deja un marcador visible; variantes estables por prospecto', () => {
   const m = messagesFor({}, 'x', { sellerName: '', sellerCity: '' });
-  assert.match(m.primerContacto, /Soy \[tu nombre\]\. Trabajo/);
+  assert.match(m.primerContacto, /Soy \[tu nombre\]\.\n\nEstuve/);
   assert.equal(messagesFor({}, 'mismo').primerContacto, messagesFor({}, 'mismo').primerContacto);
   const distinct = new Set(Array.from({ length: 12 }, (_, i) => messagesFor({}, `seed-${i}`).primerContacto));
   assert.ok(distinct.size >= 3, `pocas variantes: ${distinct.size}`);

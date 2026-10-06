@@ -84,12 +84,20 @@ const basisLine = (a) => a.basis?.length
   ? `<div class="basis">${icon('check', 'width="13" height="13"')}Dato verificado: ${a.basis.map((b) => `<b>${esc(b.label)}</b> ${esc(b.value)} <span class="faint">(confianza ${esc(b.confidence)} · ${esc(b.source)})</span>`).join(' · ')}</div>`
   : '';
 
+const LEVEL = {
+  confirmado: '<span class="lvl lvl-ok" title="Dato verificado en todos los canales: se puede usar en el mensaje">Confirmado</span>',
+  probable: '<span class="lvl lvl-maybe" title="No se pudo verificar en todos los canales: revisalo antes de usarlo. No va en el mensaje">Probable</span>',
+};
+
 function problemsCard(p) {
+  const used = new Set((p.messageSelection ?? []).map((x) => x.findingId));
+  const contradicted = p.analysis?.audit?.contradicted ?? [];
   return `<section class="card" id="problemas">
     <div class="card-head"><h2>Problemas encontrados</h2><span class="sub">${p.problems.length} · ${p.highImpactCount} de impacto alto</span></div>
     <div class="list-gap">${p.problems.length ? p.problems.map((a) => `
-      <article class="problem ${IMP[a.impact]}">
-        <div class="problem-head"><div><div class="label">Problema detectado</div><h4>${esc(a.problem)}</h4></div><span class="imp imp-${IMP[a.impact]}">${esc(a.impact)}</span></div>
+      <article class="problem ${IMP[a.impact]} ${a.level === 'probable' ? 'is-probable' : ''}">
+        <div class="problem-head"><div><div class="label">Problema detectado ${a.level ? LEVEL[a.level] ?? '' : ''} ${used.has(a.findingId) ? '<span class="lvl lvl-msg" title="Este problema se usa en el mensaje de primer contacto">En el mensaje</span>' : ''}</div><h4>${esc(a.problem)}</h4></div><span class="imp imp-${IMP[a.impact]}">${esc(a.impact)}</span></div>
+        ${a.level === 'probable' && a.levelNote ? `<div class="lvl-note">${icon('bell', 'width="13" height="13"')}Para revisar: ${esc(a.levelNote)}</div>` : ''}
         <div class="label">Motivo</div><p>${esc(a.reason)}</p>
         <div class="problem-grid">
           <div><div class="label">Servicio recomendado</div><div class="svc">${esc(a.service)}</div></div>
@@ -97,7 +105,36 @@ function problemsCard(p) {
         </div>
         ${basisLine(a)}
       </article>`).join('') : '<p class="muted">No se detectaron problemas relevantes.</p>'}
-    </div></section>`;
+    </div>
+    ${contradicted.length ? `<div class="dq-unverified"><div class="label">Descartados: el negocio ya lo tiene</div>
+      <ul>${contradicted.map((c) => `<li>${esc(c.title)} <span class="faint">· ${esc(c.reason)}</span></li>`).join('')}</ul></div>` : ''}
+  </section>`;
+}
+
+const CH_ICON = { encontrado: ['✓', 'ch-ok', 'Encontrado'], no_encontrado: ['✗', 'ch-no', 'No encontrado'], no_verificado: ['?', 'ch-unk', 'No verificado'] };
+const shortUrl = (u) => String(u).replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '').slice(0, 48);
+
+/** Canales encontrados: Google Maps, web, Instagram, WhatsApp, Facebook, reservas y otros links. */
+function channelsCard(p) {
+  const ch = p.analysis?.channels;
+  const ig = ch?.instagram;
+  return `<section class="card" id="canales">
+    <div class="card-head"><h2>Canales encontrados</h2>
+      <button class="btn btn-sm" id="verify">${icon('refresh')}Verificar presencia online</button></div>
+    ${!ch ? '<p class="muted" style="margin:0">Este análisis es anterior a la verificación de canales. Tocá <b>Verificar presencia online</b> para revisar web, Instagram, WhatsApp y reservas antes de contactar.</p>' : `
+    <div class="ch-list">${ch.channels.map((c) => {
+      const [sym, cls, txt] = CH_ICON[c.status] ?? CH_ICON.no_verificado;
+      const link = c.url && /^https?:\/\//.test(c.url) ? `<a href="${esc(c.url)}" target="_blank" rel="noopener" class="gen-link">${esc(shortUrl(c.url))}</a>` : '';
+      return `<div class="ch-row" data-ch="${esc(c.id)}">
+        <span class="ch-sym ${cls}" title="${txt}">${sym}</span>
+        <div class="ch-main"><b>${esc(c.label)}</b> <span class="faint">${txt}${c.sources?.length ? ` · ${esc(c.sources.join(', '))}` : ''}</span>
+          ${link || c.detail ? `<div class="ch-detail">${link}${link && c.detail ? ' · ' : ''}${c.detail ? esc(c.detail) : ''}</div>` : ''}</div>
+      </div>`;
+    }).join('')}</div>
+    ${ch.review?.length ? `<div class="alert warn" style="margin:12px 0 0"><span class="alert-icon">${icon('bell')}</span><div><b>Requiere revisión</b><ul class="ch-review">${ch.review.map((r) => `<li>${esc(r)}</li>`).join('')}</ul></div></div>` : ''}
+    ${ig?.instagram_notes?.length ? `<p class="faint" style="font-size:12px;margin:10px 0 0">Instagram: ${esc(ig.instagram_notes.join(' '))}</p>` : ''}
+    <p class="faint" style="font-size:12px;margin:10px 0 0">Revisado: ${esc(dateTime(ch.checkedAt))} · "No verificado" no significa que no exista: no se pudo comprobar.</p>`}
+  </section>`;
 }
 
 function servicesCard(p) {
@@ -179,23 +216,39 @@ function valueCard(p) {
   </section>`;
 }
 
+/** Número de WhatsApp CONFIRMADO (de un enlace de WhatsApp o del contacto de Instagram). */
+const confirmedWa = (p) => p.analysis?.channels?.whatsappNumber;
+const igUrl = (p) => p.analysis?.channels?.instagramUrl;
+
+function selectionHtml(sel) {
+  if (!sel?.length) return '<div class="msg-sel muted">No hay problemas confirmados para usar: el mensaje no inventa ninguno. Revisá los "Probables" o verificá la presencia online.</div>';
+  return `<div class="msg-sel"><div class="label">El mensaje usa (solo confirmados)</div><ol>${sel.map((x) => `<li>${esc(x.text.split(/(?<=\.)\s/)[0])}</li>`).join('')}</ol></div>`;
+}
+
 function messagesCard(p) {
+  const wa = confirmedWa(p);
+  const ig = igUrl(p);
   return `<section class="card" id="mensajes">
-    <div class="card-head"><h2>Mensaje de WhatsApp</h2>
+    <div class="card-head"><h2>Mensaje de contacto</h2>
       <button class="btn btn-sm" id="regen" title="Generar otra versión de este mensaje">${icon('refresh')}Otra versión</button></div>
+    <div id="msg-sel">${selectionHtml(p.messageSelection)}</div>
     <div class="tabs" role="tablist">
       <button class="on" data-msg="primerContacto">1er contacto</button>
       <button data-msg="primerContactoCorto">Corto</button>
       <button data-msg="seguimiento">Seguimiento</button>
     </div>
-    <textarea class="textarea wa-text" id="msg" aria-label="Mensaje de WhatsApp (editable)"></textarea>
+    <textarea class="textarea wa-text" id="msg" aria-label="Mensaje de contacto (editable)"></textarea>
     <p class="faint msg-hint" id="msg-hint">Podés editarlo antes de enviarlo. Si no te gusta, tocá "Otra versión".</p>
-    <div class="btn-row">
-      <button class="btn btn-sm" id="copy">${icon('copy')}Copiar</button>
-      <a class="btn btn-sm" id="wa" target="_blank" rel="noopener">${icon('external')}Abrir WhatsApp</a>
+    <div class="btn-row contact-row">
+      <a class="btn btn-sm ${wa ? 'btn-wa' : ''}" id="wa" target="_blank" rel="noopener">${icon(wa ? 'message' : 'external')}${wa ? 'Contactar por WhatsApp' : 'Abrir WhatsApp'}</a>
+      ${ig ? `<a class="btn btn-sm" id="ig" href="${esc(ig)}" target="_blank" rel="noopener">${icon('external')}Abrir Instagram</a>` : ''}
+      <button class="btn btn-sm" id="copy">${icon('copy')}Copiar mensaje</button>
       <button class="btn btn-sm btn-primary" id="sent">${icon('check')}Registrar envío</button>
     </div>
-    ${p.phone && !/^(\+|00)/.test(p.phone.trim()) ? '<p class="faint" style="font-size:12px;margin:8px 0 0">El teléfono no tiene prefijo internacional: WhatsApp se abre sin destinatario.</p>' : ''}
+    ${wa
+      ? `<p class="faint contact-note">WhatsApp +${esc(wa)}, encontrado en ${esc(p.analysis.channels.whatsappSource ?? 'sus canales')}. Se abre con el mensaje cargado: no se envía solo.</p>`
+      : p.phone && !/^(\+|00)/.test(p.phone.trim()) ? '<p class="faint contact-note">No se encontró un WhatsApp confirmado y el teléfono de Google no tiene prefijo internacional: WhatsApp se abre sin destinatario.</p>' : ''}
+    ${ig ? '<p class="faint contact-note">Instagram: abrí el perfil y pegá el mensaje en un mensaje directo ("Copiar mensaje").</p>' : ''}
   </section>`;
 }
 
@@ -296,8 +349,8 @@ export async function render(main, { id }, ctx) {
       </div>
       <div class="profile">
         <div>
-          <nav class="subnav"><a href="#resumen">Resumen</a><a href="#problemas">Problemas (${p.problems.length})</a><a href="#servicios">Servicios</a><a href="#presupuesto">Presupuesto</a><a href="#datos">Confiabilidad</a></nav>
-          <div class="stack">${summaryCard(p)}${problemsCard(p)}${servicesCard(p)}${budgetCard(p)}${reliabilityCard(p)}</div>
+          <nav class="subnav"><a href="#resumen">Resumen</a><a href="#problemas">Problemas (${p.problems.length})</a><a href="#servicios">Servicios</a><a href="#canales">Canales</a><a href="#presupuesto">Presupuesto</a><a href="#datos">Confiabilidad</a></nav>
+          <div class="stack">${summaryCard(p)}${channelsCard(p)}${problemsCard(p)}${servicesCard(p)}${budgetCard(p)}${reliabilityCard(p)}</div>
         </div>
         <aside class="profile-side" aria-label="Seguimiento y contacto">${followupsCard(p)}${valueCard(p)}${messagesCard(p)}${notesCard(p)}${historyCard(p, ctx.meta.activityTypes)}</aside>
       </div>`;
@@ -311,8 +364,13 @@ export async function render(main, { id }, ctx) {
     const hint = $('#msg-hint', main);
     if (hint) hint.textContent = variants[msgKey] ? `Versión ${variants[msgKey] + 1}. Si no te gusta, tocá "Otra versión" de nuevo.` : 'Podés editarlo antes de enviarlo. Si no te gusta, tocá "Otra versión".';
     autoGrow(ta);
-    $('#wa', main).href = waLink(p.phone, ta.value);
+    setWaHref(ta.value);
     for (const b of $$('[data-msg]', main)) b.classList.toggle('on', b.dataset.msg === msgKey);
+  };
+  // WhatsApp confirmado → wa.me/NÚMERO con el mensaje de ESTE prospecto; si no, el comportamiento de siempre.
+  const setWaHref = (text) => {
+    const wa = confirmedWa(p);
+    $('#wa', main).href = wa ? `https://wa.me/${wa}?text=${encodeURIComponent(text)}` : waLink(p.phone, text);
   };
 
   let notesTimer;
@@ -400,7 +458,7 @@ export async function render(main, { id }, ctx) {
 
     // Mensajes
     for (const b of $$('[data-msg]', main)) b.onclick = () => { msgKey = b.dataset.msg; showMessage(); };
-    $('#msg', main).oninput = (e) => { edited = true; autoGrow(e.target); $('#wa', main).href = waLink(p.phone, e.target.value); };
+    $('#msg', main).oninput = (e) => { edited = true; autoGrow(e.target); setWaHref(e.target.value); };
     $('#regen', main).onclick = async () => {
       if (edited && !(await confirmDialog('Generar otra versión', 'Vas a perder los cambios que hiciste a mano en este mensaje.', 'Generar otra'))) return;
       const btn = $('#regen', main);
@@ -409,6 +467,7 @@ export async function render(main, { id }, ctx) {
         const r = await api.messageVariant(id, msgKey, variants[msgKey] + 1);
         variants[msgKey] = r.variante;
         generated[msgKey] = r.texto;
+        if (msgKey === 'primerContacto' && r.seleccion) $('#msg-sel', main).innerHTML = selectionHtml(r.seleccion);
         showMessage();
         const ta = $('#msg', main);
         ta.classList.remove('flash');
@@ -435,6 +494,27 @@ export async function render(main, { id }, ctx) {
       }
     };
     showMessage();
+
+    // Verificar presencia online (web + Instagram + canales de contacto)
+    $('#verify', main).onclick = async () => {
+      const btn = $('#verify', main);
+      btn.disabled = true;
+      const label = btn.innerHTML;
+      try {
+        await api.verifyPresence(id, (ev) => { if (ev.tipo === 'progreso') btn.innerHTML = `${icon('refresh')}${esc(ev.mensaje)} ${ev.porcentaje}%`; });
+        await flushNotes();
+        p = await api.prospect(id);
+        for (const k of Object.keys(generated)) delete generated[k];
+        for (const k of Object.keys(variants)) variants[k] = 0;
+        toast('Presencia online verificada: argumentos y mensaje actualizados');
+        draw();
+        document.getElementById('canales')?.scrollIntoView({ block: 'start' });
+      } catch (err) {
+        toast(err.message, 'err');
+        btn.disabled = false;
+        btn.innerHTML = label;
+      }
+    };
 
     // Presupuesto personalizado
     $('#budget-edit', main).onclick = () => {

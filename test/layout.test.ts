@@ -8,6 +8,8 @@ import type { AddressInfo } from 'node:net';
 import { after, before, test } from 'node:test';
 import type { Browser } from 'playwright';
 import { buildAnalysis } from '../src/analyzer.js';
+import { buildChannelReport } from '../src/channels/crossCheck.js';
+import type { InstagramAnalysis } from '../src/channels/instagram.js';
 import { createApp } from '../src/api/app.js';
 import { UserRepository } from '../src/auth/users.js';
 import { CrmRepository } from '../src/crm/repository.js';
@@ -37,8 +39,17 @@ before(async () => {
   const repo = new CrmRepository(db, () => prices, (p) => { prices = p; });
   const users = new UserRepository(db);
   const admin = await users.create({ name: 'Ivan Bologna', username: 'ivan', password: 'secreta123', role: 'admin' });
-  const prof = { ...profile('Estética Bella Vista Centro de Estética Integral y Spa'), dataQuality: wideQuality() };
-  prospectId = repo.saveAnalysis(buildAnalysis('https://maps.app.goo.gl/x', prof, undefined, { durationMs: 0 }), { userId: admin.id }).id;
+  const prof = { ...profile('Estética Bella Vista Centro de Estética Integral y Spa'), dataQuality: wideQuality(), socialLinks: ['https://www.instagram.com/esteticabellavista.centro.integral/'] };
+  // Instagram con Linktree (reservas y WhatsApp) y una web con dominio largo: tarjeta de canales completa y botones de contacto.
+  const ig: InstagramAnalysis = {
+    url: prof.socialLinks[0]!, username: 'esteticabellavista.centro.integral', status: 'ok', links: ['https://linktr.ee/esteticabellavista'], contactAvailable: true,
+    linktree: 'https://linktr.ee/esteticabellavista', linktreeChecked: true, manualBooking: false, notes: [], checkedAt: '', followers: 12850,
+    linktreeLinks: ['https://www.agendapro.com/ar/esteticabellavistacentrointegralyspa', 'https://wa.me/5493415550000', 'https://www.ejemplo-de-negocio-con-dominio-largo.com.ar/'],
+    bookingUrl: 'https://www.agendapro.com/ar/esteticabellavistacentrointegralyspa', bookingProvider: 'AgendaPro', whatsappLink: 'https://wa.me/5493415550000',
+    whatsappNumber: '5493415550000', website: 'https://www.ejemplo-de-negocio-con-dominio-largo.com.ar/',
+  };
+  const channels = buildChannelReport(prof, undefined, ig, { igWebsiteReachable: true });
+  prospectId = repo.saveAnalysis(buildAnalysis('https://maps.app.goo.gl/x', prof, undefined, { durationMs: 0 }, channels), { userId: admin.id }).id;
   repo.addFollowup(prospectId, { dueAt: new Date(Date.now() + 86_400_000).toISOString(), note: 'Llamar para mandar el presupuesto y confirmar la reunión del jueves' }, admin.id);
   server = createApp({ repo, users, log: () => {} }).listen(0, '127.0.0.1');
   await new Promise((r) => server.once('listening', r));
@@ -58,7 +69,7 @@ const CHECK = `(() => {
   const inScroller = (el) => { for (let p = el.parentElement; p && p !== main; p = p.parentElement) if (/(auto|scroll|hidden)/.test(getComputedStyle(p).overflowX)) return true; return false; };
   for (const el of main.querySelectorAll('*')) {
     const r = el.getBoundingClientRect();
-    if (r.width && !inScroller(el) && (r.right > mr.right + 1 || r.left < mr.left - 1)) { issues.push('se sale: ' + (el.className || el.tagName)); break; }
+    if (r.width && !inScroller(el) && (r.right > mr.right + 1 || r.left < mr.left - 1)) { issues.push('se sale: ' + (el.className || el.tagName) + ' ' + (el.textContent || '').slice(0, 80)); break; }
   }
   for (const sel of ['#logout', '#account']) { const r = document.querySelector(sel)?.getBoundingClientRect(); if (!r || !r.width || r.right > innerWidth + 1) issues.push(sel + ' fuera de pantalla'); }
   const prof = document.querySelector('.profile');
@@ -72,6 +83,26 @@ const CHECK = `(() => {
     return { issues, side, mainWidth: Math.round(ra.width) };
   }
   return { issues };
+})()`;
+
+/** Botones de contacto y de verificación: visibles, sin pisarse entre sí y dentro de su tarjeta. */
+const BUTTONS = `(() => {
+  const issues = [];
+  const ids = ['#verify', '#wa', '#ig', '#copy', '#sent'];
+  const rects = ids.map((s) => [s, document.querySelector(s)?.getBoundingClientRect()]);
+  for (const [s, r] of rects) if (!r || !r.width || !r.height) issues.push(s + ' no visible');
+  for (let i = 0; i < rects.length; i++) for (let j = i + 1; j < rects.length; j++) {
+    const [sa, a] = rects[i], [sb, b] = rects[j];
+    if (a && b && a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1) issues.push(sa + ' se superpone con ' + sb);
+  }
+  for (const [s, r] of rects) {
+    const card = document.querySelector(s)?.closest('.card')?.getBoundingClientRect();
+    if (r && card && (r.right > card.right + 1 || r.left < card.left - 1)) issues.push(s + ' se sale de su tarjeta');
+  }
+  const wa = document.querySelector('#wa');
+  if (wa && !(wa.getAttribute('href') || '').startsWith('https://wa.me/5493415550000?text=')) issues.push('#wa sin el número confirmado: ' + wa.getAttribute('href'));
+  if (document.querySelectorAll('.ch-row').length < 8) issues.push('faltan filas de canales');
+  return issues;
 })()`;
 
 for (const [w, h, expectSide] of [[1920, 1080, true], [1366, 768, true], [1280, 800, false], [390, 844, false]] as const) {
@@ -91,6 +122,11 @@ for (const [w, h, expectSide] of [[1920, 1080, true], [1366, 768, true], [1280, 
     const r = (await page.evaluate(CHECK)) as { issues: string[]; side: boolean; mainWidth: number };
     assert.deepEqual(r.issues, [], `perfil ${w}: ${r.issues.join(' | ')}`);
     assert.equal(r.side, expectSide, `paneles ${expectSide ? 'al costado' : 'debajo'} en ${w}px`);
+    const b = (await page.evaluate(BUTTONS)) as string[];
+    assert.deepEqual(b, [], `botones ${w}: ${b.join(' | ')}`);
+    if (process.env.LAYOUT_SHOTS) {
+      for (const sel of ['#canales', '#mensajes']) await page.locator(sel).first().screenshot({ path: `${process.env.LAYOUT_SHOTS}/${w}-${sel.slice(1)}.png` }).catch(() => {});
+    }
 
     await page.goto(`${base}/configuracion`);
     await page.waitForSelector('#edit-prices');

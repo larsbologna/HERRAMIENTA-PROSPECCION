@@ -19,8 +19,9 @@ export function buildWhatsappMessage(ctx: AuditContext, proposal: Pick<Proposal,
       profile: ctx.profile,
       website: ctx.website,
       metrics: ctx.metrics,
+      channels: ctx.channels,
     },
-    { sellerName: config.seller.name === '[tu nombre]' ? '' : config.seller.name },
+    { sellerName: config.seller.name === '[tu nombre]' ? '' : config.seller.name, sellerBusiness: config.seller.business },
   ).primerContacto;
 }
 
