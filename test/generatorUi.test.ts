@@ -85,9 +85,10 @@ test('generar, seguir y analizar desde la interfaz', { timeout: 240_000 }, async
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await login(page);
-  assert.ok((await page.$$eval('#nav a', (as) => as.map((a) => a.textContent?.trim()))).includes('Generador'), 'la sección aparece en el menú');
+  const menu = await page.$$eval('#nav a', (as) => as.map((a) => a.textContent?.trim()));
+  assert.ok(!menu.includes('Generador') && menu.includes('Prospección'), 'el Generador salió del menú: la Prospección lo reemplaza');
 
-  await page.click('#nav a[href="/generador"]');
+  await page.goto(`${base}/generador`); // ya no está en el menú: se entra desde Prospección
   await page.waitForSelector('#gen-form');
   await page.fill('input[name=rubro]', 'Barberías');
   await page.fill('input[name=zona]', 'Quilmes');
@@ -124,7 +125,7 @@ test('generar, seguir y analizar desde la interfaz', { timeout: 240_000 }, async
   assert.equal((await page.textContent('.profile-head h1'))!.trim(), name);
   assert.ok(gen.get(first!).prospectId, 'el análisis queda vinculado al prospecto generado');
 
-  await page.click('#nav a[href="/generador"]');
+  await page.goto(`${base}/generador`); // ya no está en el menú: se entra desde Prospección
   await page.waitForSelector('.gen-list');
   assert.ok(await page.$(`.gen-item[data-id="${first}"] a[href^="/prospectos/"]`), 'muestra "Ver análisis"');
   assert.deepEqual(await page.evaluate(LAYOUT), []);
