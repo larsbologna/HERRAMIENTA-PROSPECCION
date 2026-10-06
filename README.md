@@ -199,7 +199,7 @@ El mensaje se arma solo con argumentos **confirmados**, ordenados por prioridad 
 
 Botones de la tarjeta **Mensaje de contacto**:
 
-- **Contactar por WhatsApp:** aparece cuando hay un WhatsApp confirmado (enlace de WhatsApp en la web, Instagram o Linktree, o el contacto de Instagram). Abre `https://wa.me/NUMERO?text=…` con el mensaje exacto cargado. **No se envía solo**: lo revisás y lo mandás vos. Si no hay número confirmado, "Abrir WhatsApp" usa el teléfono de Google como antes.
+- **Contactar por WhatsApp:** abre **directo el chat del negocio** con el mensaje exacto cargado. **No se envía solo**: lo revisás y lo mandás vos. Usa el WhatsApp confirmado (enlace de WhatsApp en la web, Instagram o Linktree, o el contacto de Instagram) y, si no hay, el teléfono de Google convertido a formato internacional (`0341 15-555-0000` → `+54 9 341 555-0000`; un fijo queda `+54 341 …`, que sirve si usan WhatsApp Business). En el celular abre la app; en la computadora elegís al lado del botón **WhatsApp Web** (por defecto, siempre en la misma pestaña) o **App de escritorio**, y queda recordado.
 - **Abrir Instagram:** abre el perfil. Instagram no permite abrir un mensaje directo con texto cargado, así que no se inventan enlaces de DM: usá **Copiar mensaje** y pegalo.
 - **Copiar mensaje** y **Registrar envío**.
 
@@ -307,7 +307,7 @@ Todas las rutas requieren sesión salvo las de `/api/auth` (login, estado, alta 
 | GET | `/api/export` | Copia de seguridad JSON (admin) |
 
 ```bash
-npm test           # 106 tests: unitarios, presupuesto, CRM, migraciones, autenticación y roles, API, mensajes, diagnóstico, confiabilidad, generador (dedupe, score, persistencia, API e interfaz), canales e Instagram simulado, mensajes, layout y e2e con Chromium
+npm test           # 107 tests: unitarios, presupuesto, CRM, migraciones, autenticación y roles, API, mensajes, diagnóstico, confiabilidad, generador (dedupe, score, persistencia, API e interfaz), canales e Instagram simulado, mensajes, layout y e2e con Chromium
 npm run typecheck
 ```
 

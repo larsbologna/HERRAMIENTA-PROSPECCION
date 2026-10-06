@@ -88,7 +88,7 @@ const CHECK = `(() => {
 /** Botones de contacto y de verificación: visibles, sin pisarse entre sí y dentro de su tarjeta. */
 const BUTTONS = `(() => {
   const issues = [];
-  const ids = ['#verify', '#wa', '#ig', '#copy', '#sent'];
+  const ids = ['#verify', '#wa', '#ig', '#copy', '#sent', ...(document.querySelector('#wa-mode') ? ['#wa-mode'] : [])];
   const rects = ids.map((s) => [s, document.querySelector(s)?.getBoundingClientRect()]);
   for (const [s, r] of rects) if (!r || !r.width || !r.height) issues.push(s + ' no visible');
   for (let i = 0; i < rects.length; i++) for (let j = i + 1; j < rects.length; j++) {
@@ -100,7 +100,8 @@ const BUTTONS = `(() => {
     if (r && card && (r.right > card.right + 1 || r.left < card.left - 1)) issues.push(s + ' se sale de su tarjeta');
   }
   const wa = document.querySelector('#wa');
-  if (wa && !(wa.getAttribute('href') || '').startsWith('https://wa.me/5493415550000?text=')) issues.push('#wa sin el número confirmado: ' + wa.getAttribute('href'));
+  const href = (wa && wa.getAttribute('href')) || '';
+  if (wa && !href.includes('wa.me/5493415550000') && !href.includes('phone=5493415550000')) issues.push('#wa no abre el chat del negocio: ' + href);
   if (document.querySelectorAll('.ch-row').length < 8) issues.push('faltan filas de canales');
   return issues;
 })()`;

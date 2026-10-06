@@ -145,11 +145,59 @@ export async function copyText(text) {
   }
 }
 
-/** wa.me requiere número con prefijo internacional; si no lo tiene, abre WhatsApp sin destinatario. */
+/**
+ * Número para WhatsApp (solo dígitos, con código de país) a partir de un teléfono como lo muestra Google.
+ * Argentina por defecto: "0341 15-555-0000" → 5493415550000 (celular: 54 + 9, sin 0 ni 15);
+ * "0341 456-7890" → 543414567890 (fijo: WhatsApp Business también funciona con fijos).
+ * Devuelve '' si no se puede armar un número válido.
+ */
+export function waPhone(phone) {
+  const raw = String(phone || '').trim();
+  let d = raw.replace(/\D/g, '');
+  const intl = /^(\+|00)/.test(raw);
+  if (d.startsWith('00')) d = d.slice(2);
+  const mobile15 = (rest) => {
+    const m = rest.match(/^(\d{2,4})15(\d{6,8})$/);
+    return m && m[1].length + m[2].length === 10 ? `549${m[1]}${m[2]}` : '';
+  };
+  if (intl) {
+    if (!d.startsWith('54')) return d.length >= 8 && d.length <= 15 ? d : '';
+    const rest = d.slice(2).replace(/^0/, '');
+    if (rest.startsWith('9') && rest.length === 11) return `54${rest}`;
+    return mobile15(rest) || (rest.length === 10 ? `54${rest}` : '');
+  }
+  if (d.startsWith('54') && d.length >= 12 && d.length <= 13) return d.slice(2).startsWith('9') ? d : mobile15(d.slice(2)) || d;
+  const rest = d.replace(/^0/, '');
+  return mobile15(rest) || (rest.length === 10 ? `54${rest}` : '');
+}
+
+/** ¿Celular o tablet? (ahí wa.me abre la app directo en el chat). */
+export const isTouchDevice = () => {
+  try {
+    return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || (matchMedia('(pointer: coarse)').matches && !matchMedia('(pointer: fine)').matches);
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Enlace que abre el CHAT con el negocio y el mensaje cargado (no lo envía).
+ * - Celular: wa.me → la app abre directo en el chat.
+ * - Computadora: "web" → WhatsApp Web directo en el chat (sin la página intermedia de wa.me);
+ *   "app" → la app de WhatsApp de escritorio.
+ * Sin número abre WhatsApp para elegir el contacto.
+ */
+export function waChatUrl(number, text, mode = isTouchDevice() ? 'mobile' : 'web') {
+  const n = String(number || '').replace(/\D/g, '');
+  const t = encodeURIComponent(text || '');
+  if (mode === 'app') return `whatsapp://send?${n ? `phone=${n}&` : ''}text=${t}`;
+  if (mode === 'web') return `https://web.whatsapp.com/send?${n ? `phone=${n}&` : ''}text=${t}`;
+  return `https://wa.me/${n}?text=${t}`;
+}
+
+/** Compatibilidad: enlace wa.me a partir de un teléfono (ahora también entiende teléfonos argentinos sin +54). */
 export function waLink(phone, text) {
-  const p = (phone || '').trim();
-  const digits = /^(\+|00)/.test(p) ? p.replace(/\D/g, '').replace(/^00/, '') : '';
-  return `https://wa.me/${digits.length >= 8 ? digits : ''}?text=${encodeURIComponent(text)}`;
+  return waChatUrl(waPhone(phone), text, 'mobile');
 }
 
 export function emptyState(iconName, title, text, actionHtml = '') {
