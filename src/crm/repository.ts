@@ -3,6 +3,7 @@ import { instagramUsername } from '../channels/links.js';
 import { assessPotential } from '../prospecting/potential.js';
 import { analyzeOpportunities, opportunityTitles } from '../opportunities/engine.js';
 import { channelOf } from '../channels/crossCheck.js';
+import { CONTACT_CHANNELS, parseContactOrder } from '../prospecting/contact.js';
 import { RubroCatalog, rubroKeyFor, slug, type CustomRubro, type RubroModel } from '../rubros/catalog.js';
 import { POTENTIAL_ORDER } from '../prospecting/sql.js';
 import type { AnalysisResult, AreaScore, Budget, SalesArgument, ServiceRecommendation } from '../domain/types.js';
@@ -721,19 +722,27 @@ export class CrmRepository {
       sellerCity: this.getSetting('seller_city') ?? defaults.sellerCity,
       sellerIntro: this.getSetting('seller_intro') ?? defaults.sellerIntro,
       sellerLink: this.getSetting('seller_link') ?? defaults.sellerLink,
+      contactOrder: parseContactOrder(this.getSetting('contact_order') ?? defaults.contactOrder).join(','),
     };
   }
 
   saveSettings(s: Partial<Settings>): void {
-    const fields: Record<keyof Settings, [key: string, max: number, label: string]> = {
+    const clean: Array<[string, string]> = [];
+    if (s.contactOrder !== undefined) {
+      const given = String(s.contactOrder).split(',').map((x) => x.trim()).filter(Boolean);
+      if (given.some((x) => !(CONTACT_CHANNELS as readonly string[]).includes(x)) || new Set(given).size !== given.length) {
+        throw new ValidationError('Orden de canales inválido.');
+      }
+      clean.push(['contact_order', parseContactOrder(given.join(',')).join(',')]);
+    }
+    const fields: Record<Exclude<keyof Settings, 'contactOrder'>, [key: string, max: number, label: string]> = {
       sellerName: ['seller_name', 120, 'Nombre'],
       sellerBusiness: ['seller_business', 120, 'Nombre del negocio'],
       sellerCity: ['seller_city', 120, 'Ciudad o zona'],
       sellerIntro: ['seller_intro', 300, 'Presentación'],
       sellerLink: ['seller_link', 200, 'Enlace'],
     };
-    const clean: Array<[string, string]> = [];
-    for (const [k, [key, max, label]] of Object.entries(fields) as Array<[keyof Settings, [string, number, string]]>) {
+    for (const [k, [key, max, label]] of Object.entries(fields) as Array<[Exclude<keyof Settings, 'contactOrder'>, [string, number, string]]>) {
       const v = s[k];
       if (v === undefined) continue;
       if (typeof v !== 'string') throw new ValidationError(`${label}: valor inválido.`);

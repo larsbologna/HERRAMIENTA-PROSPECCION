@@ -205,4 +205,6 @@ export interface Settings {
   sellerIntro: string;
   /** Web, Instagram o @usuario que se suma al primer mensaje (opcional). */
   sellerLink: string;
+  /** Orden de canales para "Contactar" (separados por coma: whatsapp,instagram,telefono,web,maps). */
+  contactOrder: string;
 }

@@ -1,7 +1,7 @@
 # Prospección · CRM comercial para Gestores de Presencia Online
 
 Plataforma local para construir y trabajar una base de prospectos a partir de Google Maps.
-Pegás el enlace de un negocio y la herramienta lo audita, detecta problemas con argumentos de venta concretos, recomienda servicios, arma el presupuesto en pesos y escribe el mensaje de WhatsApp. Todo queda **guardado** para seguirlo desde **Prospectos**.
+Pegás el enlace de un negocio y la herramienta lo audita, detecta problemas con argumentos de venta concretos, recomienda servicios, arma el presupuesto en pesos y escribe el mensaje de WhatsApp. Todo queda **guardado** para seguirlo desde **Prospección**.
 
 Servicios que ayuda a vender: **Optimización de Google Maps · Sitios web · Bot IA para WhatsApp · Automatización de atención · Sistema de reservas · Dashboard administrativo · Gestión de reputación**.
 
@@ -29,7 +29,7 @@ Para cerrarla, cerrá la ventana negra. Tus datos quedan guardados.
 | | Administrador | Vendedor |
 |---|---|---|
 | Dashboard | Global + su actividad | Solo sus prospectos + su actividad |
-| Prospectos / Perfil | Todos, con filtro por vendedor y asignación | **Mis prospectos**: los que analizó o le asignaron |
+| Prospección / Perfil | Todos, con filtro por vendedor y asignación | **Mis prospectos**: los que analizó o le asignaron |
 | Notas, historial, mensajes, seguimientos | ✔ | ✔ (en sus prospectos) |
 | Asignar / eliminar prospectos | ✔ | — |
 | Auditorías, Métricas globales | ✔ | — |
@@ -46,11 +46,11 @@ Para cerrarla, cerrá la ventana negra. Tus datos quedan guardados.
 
 | Sección | Para qué |
 |---|---|
-| **Prospectos** | **El flujo principal, todo en un lugar.** Buscás (rubro, zona, cantidad → **Buscar prospectos**), filtrás (estado, prioridad y rubro), ves cada prospecto con sus contactos, prioridad y oportunidades, y desde cada fila: **Ver mensaje** (copiar, WhatsApp, Instagram, Maps), **Ver análisis** y **Marcar contactado**. Arriba, **Siguiente prospecto →**. Ver abajo. |
+| **Prospección** | **El flujo principal, todo en un lugar.** Barra superior: **Buscar negocios** (abre el buscador: rubro, zona, cantidad), **Siguiente prospecto →**, filtros *Todos / No contactados / Contactados* (+ más estados), **Rubro** y **Prioridad**. Lista limpia: cada negocio es una tarjeta separada con lo esencial (nombre, prioridad, rubro, zona, ⭐ y reseñas, canales ✓/?/✕ y estado) y dos botones: **Ver prospecto** y **Contactar**. Ver abajo. |
 | **Dashboard** | Alerta de seguimientos pendientes y tu actividad (asignados, seguimientos, reuniones, conversión personal). Prospectos analizados, sin contactar, contactados, respondieron, reuniones, clientes, valor potencial y cerrado. Gráficos de prospectos por mes, valor acumulado, conversiones y estado comercial. Lista de "para contactar primero". |
-| *Vista de tabla* | Para administradores, desde el pie de Prospectos (`/prospectos/tabla`): la tabla anterior con orden por columna, filtro por vendedor y asignación masiva. |
-| *Generador* | No está en el menú. Se entra desde el pie de Prospectos ("Lista completa de negocios encontrados") para ver la lista cruda o reintentar el análisis de alguno que falló. |
-| *Pipeline* | **Se quitó de la interfaz** (el estado se cambia desde la lista o desde Siguiente). Los estados y su historial se conservan; `/pipeline` y `/prospeccion` llevan a Prospectos. |
+| *Vista de tabla* | Para administradores, desde el pie de Prospección (`/prospectos/tabla`): la tabla anterior con orden por columna, filtro por vendedor y asignación masiva. |
+| *Generador* | No está en el menú. Se entra desde el pie de Prospección ("Lista completa de negocios encontrados") para ver la lista cruda o reintentar el análisis de alguno que falló. |
+| *Pipeline* | **Se quitó de la interfaz** (el estado se cambia desde la lista o desde Siguiente). Los estados y su historial se conservan; `/pipeline` y `/prospectos` llevan a Prospección. |
 | **Auditorías** | Nuevo análisis y registro de todos los análisis (incluidos los reanálisis). |
 | **Perfil del prospecto** | Responsable, próximo contacto, presupuesto **personalizable**, score por área, datos del negocio, problemas (impacto, motivo, servicio, beneficio), servicios recomendados, presupuesto, potencial económico, mensajes de WhatsApp, notas internas e historial. |
 | **Métricas** | Conversión, ticket promedio, servicios más recomendados, rubros más analizados, scores promedio y distribución. |
@@ -58,7 +58,7 @@ Para cerrarla, cerrá la ventana negra. Tus datos quedan guardados.
 
 ### Flujo diario sugerido
 
-**Con Prospectos (recomendado):** Prospectos → elegí *Veterinarias · Quilmes · 20* → **Buscar prospectos** → esperá que termine (podés dejarlo trabajando) → filtrá *Rubro: Veterinarias* → **Siguiente prospecto →** → Copiar / WhatsApp / Instagram → **Contactado** → pasa solo al siguiente.
+**Con Prospección (recomendado):** Prospección → filtrá *Rubro: Veterinarias* → **Ver prospecto** (o **Contactar**) → leé oportunidades y mensaje → **CONTACTAR** (WhatsApp con el mensaje cargado, Instagram con el mensaje copiado, o Llamar) → enviás → volvés → **Marcar como contactado** (o *Contactado y siguiente →*) → aparece la siguiente veterinaria no contactada.
 
 **Un negocio puntual:**
 
@@ -71,9 +71,9 @@ Si analizás de nuevo un negocio (mismo nombre y dirección), se **actualiza** e
 
 ---
 
-## Prospectos: búsqueda automática, rubros, oportunidades y Siguiente prospecto
+## Prospección: búsqueda automática, rubros, oportunidades, contacto y Siguiente prospecto
 
-**1. Buscar.** En **Prospectos** elegís rubro (los de fábrica, los que agregaste vos u otro escrito a mano), zona (Quilmes, Berazategui, Bernal u otra) y cantidad (10, 20, 30, 50 u otra) y tocás **Buscar prospectos**. La herramienta:
+**1. Buscar.** En **Prospección** tocás **Buscar negocios** y elegís rubro (los de fábrica, los que agregaste vos u otro escrito a mano), zona (Quilmes, Berazategui, Bernal u otra) y cantidad (10, 20, 30, 50 u otra) y tocás **Buscar prospectos**. La herramienta:
 
 1. **Busca** en Google Maps **solo ese rubro**. Google mezcla resultados, así que cada negocio se acepta únicamente si su categoría o su nombre corresponde al rubro: una búsqueda de barberías trae solo barberías.
 2. **Descarta duplicados** contra todo lo que ya tenés, de cualquier campaña y de cualquier día: Place ID, ficha y URL de Maps, teléfono, web, nombre más dirección y **nombres parecidos con la misma dirección** ("Barbería Los Primos" = "Los Primos Barber Club"). Después del análisis también compara **mismo Instagram** y **mismo WhatsApp**.
@@ -104,17 +104,41 @@ El **filtro de rubro es dinámico**: muestra solo los rubros que tienen prospect
 
 **5. Prioridad** (🔥 alta · 🟡 media · ⚪ baja), siempre con su motivo (*"Prioridad alta porque tiene 168 reseñas (4,6 ⭐), celular de contacto y 3 oportunidades claras… Ya tiene demanda y hay una oportunidad clara de convertir mejor a quienes lo encuentran."*). Se calcula con datos verificados: demanda (reseñas y puntuación), cantidad e importancia de las oportunidades para su rubro y si hay una mejora de conversión fácil (contacto, turnos/reservas, catálogo). Ejemplo: 4,6 ⭐ con 168 reseñas, sin web ni WhatsApp → **alta**. Sin contacto verificado, sin oportunidades o con muy poca actividad → **baja**.
 
-**6. Filtros combinables:** estado (Todos, No contactados, Contactados, Respondieron, Sin respuesta, No interesados, Clientes), prioridad, rubro y búsqueda por nombre.
+**6. Filtros combinables:** estado (Todos, No contactados, Contactados y, en "Más estados", Respondieron, Sin respuesta, No interesados, Clientes), rubro, prioridad y búsqueda por nombre.
 
-**7. Siguiente prospecto.** Muestra un prospecto por vez, **solo los no contactados**, ordenados alta → media → baja y **respetando el filtro de rubro** (si filtrás Veterinarias, nunca aparece una barbería). Para cada uno: Google Maps, Instagram, Web, WhatsApp y Turnos/Reservas (solo si el rubro los usa), el rubro, las oportunidades y el mensaje (Completo, Mediano, Corto o Instagram). Botones: **Copiar mensaje**, **Abrir WhatsApp**, **Abrir Instagram**, **Google Maps**, **Contactado** (guarda el mensaje en el historial y pasa al siguiente), **No interesado**, **Ver análisis** y **Siguiente prospecto →** (saltea sin marcar).
+**7. Ficha de UN prospecto** (**Ver prospecto**): nunca mezcla negocios.
+- **Encabezado:** nombre, rubro, ubicación, prioridad (con su motivo) y estado.
+- **Datos principales:** Google Maps (⭐ y reseñas), Teléfono, WhatsApp, Instagram y Web, cada uno con ✓ / ? / ✕; y el rubro (se puede cambiar o agregar uno nuevo).
+- **Oportunidades detectadas:** solo las relevantes, en una línea; **Ver detalle** muestra el por qué, la fuente, la evidencia y la confianza.
+- **Mensaje:** pestañas **WhatsApp** (completo), **Corto**, **Instagram** (más corto) y **Llamada** (guion breve para llamar); **Otra versión**, **Copiar mensaje** y el botón de contacto.
+- **Contacto:** el **canal recomendado** y un botón principal **CONTACTAR**, más los otros canales disponibles.
+- Abajo: **Marcar como contactado**, **No interesado**, **Ver análisis completo** y **Siguiente prospecto →**.
 
-**WhatsApp en la PC (lo que sí y lo que no se puede):**
-- Una página web no puede controlar un chat ya abierto en WhatsApp Desktop: el único mecanismo oficial es el enlace `https://wa.me/<número>?text=<mensaje>`.
-- Para que no se acumulen pestañas, todos los botones de WhatsApp usan **la misma pestaña**. wa.me es una página liviana que le pasa el chat a WhatsApp Desktop o al celular.
-- Al tocar el botón, el mensaje **también se copia**. Si el chat se abre sin el texto, lo pegás con Ctrl+V.
-- **Copiar mensaje** está siempre a mano.
+**8. CONTACTAR: el canal lo decide la herramienta** según lo que el negocio tiene de verdad:
 
-**Instagram:** Instagram no permite abrir un mensaje directo con texto cargado. **Abrir Instagram** abre el perfil y copia la versión **Instagram** del mensaje (más corta): la pegás en el chat.
+| Tiene | Botón principal |
+|---|---|
+| WhatsApp **confirmado** | **Contactar por WhatsApp** (chat con el número y el mensaje cargado) |
+| Instagram, sin WhatsApp | **Contactar por Instagram** (abre el perfil y copia la versión corta) |
+| Solo teléfono | **Llamar** (`tel:`; en la PC el número queda copiado) + pestaña *Llamada* con el guion |
+| Solo web | **Abrir web** (el mensaje queda copiado) |
+| Nada | **Abrir Google Maps** + **Copiar nombre**; figura como *"Sin canal directo detectado"* (característica, no error) |
+
+- **Teléfono ≠ WhatsApp.** WhatsApp ✓ solo con evidencia: enlace de WhatsApp en Google Maps, la web, Instagram o su Linktree, o un número marcado como WhatsApp en la bio. Un fijo nunca se trata como WhatsApp. Un celular sin confirmar se muestra como **"?"** y ofrece **Probar WhatsApp (sin confirmar)**, pero la acción principal es **Llamar**.
+- **Orden configurable** en *Configuración → Canal para "Contactar"* (por defecto: WhatsApp → Instagram → Teléfono → Web → Google Maps).
+- Abrir un canal **no** marca "Contactado": aparece *¿Pudiste contactarlo?* con **Marcar como contactado** y **Contactado y siguiente →**. El historial guarda el canal y el mensaje usados (una llamada queda como *Llamada*).
+
+**9. Siguiente prospecto** respeta **rubro, estado y prioridad**: con *Veterinarias · No contactados*, siempre muestra la siguiente veterinaria no contactada (alta → media → baja) y nunca salta a otro rubro. Con *Contactados* recorre los contactados; con *Todos*, primero los pendientes. Si no quedan, lo dice y ofrece ver los contactados.
+
+**WhatsApp desde la PC (lo que sí y lo que no se puede):**
+- Se usa el enlace oficial `https://wa.me/<número>?text=<mensaje>`: abre WhatsApp Desktop (o el celular) con la conversación del número y **el texto ya escrito**; solo tocás **Enviar**. Nada se envía solo: WhatsApp no permite enviar mensajes desde otra página, y está bien que así sea.
+- El número se normaliza para Argentina: sin espacios, guiones ni paréntesis, sin el 0 ni el 15 (`011 15 3100-5000` → `5491131005000`), sin duplicar el 54 (nunca `549549…`). Si el número está incompleto, no se inventa.
+- Todos los botones de WhatsApp usan **la misma pestaña**. Al tocar, el mensaje también se copia. Si la app no se abre (por ejemplo, el navegador no tiene asociada la app), están **WhatsApp Web** y **Usar número**.
+- **Límite real:** no hay forma confiable y gratuita de saber si un número tiene WhatsApp sin enviarle algo. Por eso un teléfono sin evidencia se muestra como *no confirmado* y no como ✓.
+
+**Instagram:** Instagram no permite abrir un mensaje directo con texto cargado. **Contactar por Instagram** abre el perfil y copia la versión **Instagram** del mensaje (más corta): la pegás en el chat.
+
+**Mensajes y cierre (CTA).** El cierre varía según el caso (familias *Crecimiento, Mejora, Resultado, Curiosidad, Directo, Consultivo*; el "video de un minuto" queda como alternativa, no por defecto), por ejemplo: *"Si te interesa atraer más clientes y mejorar cómo el negocio convierte esas búsquedas en consultas, podemos hablar y te cuento qué cambiaría primero."* Nunca promete resultados ("te voy a conseguir clientes", porcentajes o montos): el control de calidad lo rechaza.
 
 **Estados:** No contactado · Contactado · Respondió · Sin respuesta · No interesado · Cliente. Los prospectos anteriores conservan su estado (Interesado, Reunión agendada, Propuesta enviada y Contactar después siguen existiendo y se muestran si un prospecto los tiene).
 
@@ -325,7 +349,7 @@ web/                       Interfaz (SPA sin build)
         ├── api.js         Cliente de la API
         ├── charts.js      Gráficos SVG
         ├── ui.js          Formato, íconos, modales, avisos
-        └── views/         auth, dashboard, prospecting (Prospectos), rapid (Siguiente), prospects (tabla), generator, audits, prospect, metrics, settings
+        └── views/         auth, dashboard, prospecting (Prospección: lista), rapid (ficha de un prospecto y Siguiente), prospects (tabla), generator, audits, prospect, metrics, settings
 src/
 ├── server.ts              Arranque (127.0.0.1 por defecto; HOST/TRUST_PROXY para VPS)
 ├── usersCli.ts            Gestión de usuarios por terminal
@@ -371,7 +395,7 @@ Todas las rutas requieren sesión salvo las de `/api/auth` (login, estado, alta 
 | GET / POST | `/api/rubros` | Rubros (de fábrica y propios) con cantidad de prospectos · crear rubro `{label, model, keywords}` |
 | GET | `/api/prospeccion` | Rubros, zonas, campañas con resumen y búsqueda en curso |
 | POST | `/api/prospeccion/buscar` | Búsqueda automática `{rubro, zona, cantidad}` (en segundo plano) · `GET /api/prospeccion/trabajo` avance · `POST /api/prospeccion/trabajo/cancelar` |
-| GET | `/api/prospeccion/prospectos`, `/api/prospeccion/cola` | Listado con filtros (`campana`, `rubro`, `zona`, `estado`, `potencial`, `q`) · cola de no contactados para "Siguiente" |
+| GET | `/api/prospeccion/prospectos`, `/api/prospeccion/cola` | Listado con filtros (`campana`, `rubro`, `zona`, `estado`, `potencial`, `q`) · cola de "Siguiente" (`estado`: pendientes, todos, contactado…) · cada item trae su `contactPlan` |
 | GET / POST | `/api/prospeccion/ficha/:id`, `/api/prospeccion/:id/resultado` | Ficha del modo rápido · resultado del contacto `{estado, mensaje?, fecha?, nota?}` |
 | POST | `/api/generador/generar` | Generador de Prospectos: `{rubro, zona, cantidad}` (progreso en streaming NDJSON) |
 | GET / PATCH | `/api/generador`, `/api/generador/:id` | Prospectos generados (`estado`, `q`) · cambiar estado comercial |
@@ -381,7 +405,7 @@ Todas las rutas requieren sesión salvo las de `/api/auth` (login, estado, alta 
 | GET | `/api/export` | Copia de seguridad JSON (admin) |
 
 ```bash
-npm test           # 151 tests: unitarios, rubros (detección, normalización, creación, migración sin pérdida de datos), oportunidades y mensajes por rubro, presupuesto, CRM, migraciones, autenticación y roles, API, mensajes, diagnóstico, confiabilidad, generador (dedupe, score, persistencia, API e interfaz), canales e Instagram simulado, mensajes, layout y e2e con Chromium
+npm test           # 161 tests: contacto (WhatsApp vs teléfono, números argentinos, canal recomendado), unitarios, rubros (detección, normalización, creación, migración sin pérdida de datos), oportunidades y mensajes por rubro, presupuesto, CRM, migraciones, autenticación y roles, API, mensajes, diagnóstico, confiabilidad, generador (dedupe, score, persistencia, API e interfaz), canales e Instagram simulado, mensajes, layout y e2e con Chromium
 npm run typecheck
 ```
 
