@@ -233,7 +233,7 @@ function userForm(u) {
       <label class="field">Email (opcional)<input class="input" name="email" type="email" value="${esc(u?.email ?? '')}"></label>
       <label class="field">Rol
         <select class="select" name="role">
-          <option value="vendedor" ${u?.role !== 'admin' ? 'selected' : ''}>Vendedor · sus prospectos, pipeline, notas y mensajes</option>
+          <option value="vendedor" ${u?.role !== 'admin' ? 'selected' : ''}>Vendedor · sus prospectos, notas y mensajes</option>
           <option value="admin" ${u?.role === 'admin' ? 'selected' : ''}>Administrador · acceso total</option>
         </select>
       </label>

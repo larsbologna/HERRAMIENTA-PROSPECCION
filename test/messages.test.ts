@@ -1,151 +1,183 @@
+/**
+ * MENSAJES COMERCIALES por rubro: personalización · observación · consecuencia · oportunidad · CTA.
+ * Vocabulario del rubro (turnos / reservas / productos), estilos según el caso, control de calidad.
+ */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { buildAnalysis } from '../src/analyzer.js';
+import { buildChannelReport } from '../src/channels/crossCheck.js';
+import type { InstagramAnalysis } from '../src/channels/instagram.js';
 import type { BusinessProfile } from '../src/domain/types.js';
-import { BANNED_PHRASES, PITCHES } from '../src/messages/pitch.js';
-import { ANGLES } from '../src/messages/sales.js';
-import { buildInsight, buildMessages, buildSelection, wordCount } from '../src/messages/whatsapp.js';
+import { BANNED_PHRASES } from '../src/messages/pitch.js';
+import { buildInsight, buildMessages, buildSelection, reviewMessage, wordCount } from '../src/messages/whatsapp.js';
+import { analyzeOpportunities } from '../src/opportunities/engine.js';
+import { BUILTIN_RUBROS, DEFAULT_CATALOG } from '../src/rubros/catalog.js';
 import { emptyAnalysis } from '../src/scraper/websiteAnalyzer.js';
 
-const base: BusinessProfile = {
-  sourceUrl: 'x', name: 'Parrilla Don Tito', category: 'Restaurante', additionalCategories: [], rating: 3.6, reviewCount: 35,
-  address: 'Av. Corrientes 1234', phone: '+54 11 5555-1234', services: [], hasBooking: false, hasMenu: false, photoCount: 6,
-  photoCountIsEstimate: false, photoUrls: [], posts: [], permanentlyClosed: false, socialLinks: [], scrapedAt: '', warnings: [], isClaimed: false,
-  reviews: [{ rating: 2, ageDays: 80, hasOwnerResponse: false }, { rating: 5, ageDays: 90, hasOwnerResponse: false }, { rating: 4, ageDays: 120, hasOwnerResponse: false }],
-};
+const SELLER = { sellerName: 'Iván Bologna', sellerBusiness: 'Gestor de Presencia Online' };
+const BANNED = /sin compromiso|oportunidad única|soluci[oó]n(es)? integral|potenciar|estimad[oa]|atentamente|le saluda|sinergia|apalancar|\bundefined\b|\bnull\b|\bNaN\b/i;
 
-function messagesFor(over: Partial<BusinessProfile>, id = 'p1', seller = { sellerName: 'Martín', sellerCity: 'Rosario' }, website = undefined as ReturnType<typeof emptyAnalysis> | undefined) {
-  const p = { ...base, ...over };
-  const a = buildAnalysis('u', p, website, { durationMs: 0 });
-  return buildMessages({ id, name: p.name!, verticalId: a.vertical.id, verticalLabel: a.vertical.label, problems: a.proposal.salesArguments, services: a.proposal.services, analysis: a }, seller);
+const prof = (over: Partial<BusinessProfile>): BusinessProfile => ({
+  sourceUrl: 'x', name: 'Negocio', category: undefined, additionalCategories: [], rating: 4.2, reviewCount: 30, address: 'Laprida 100, Quilmes',
+  phone: '011 15 4444-5555', services: [], hasBooking: false, hasMenu: false, photoCount: 30, photoCountIsEstimate: false, photoUrls: [], posts: [],
+  reviews: [], permanentlyClosed: false, socialLinks: [], scrapedAt: '', warnings: [], isClaimed: true, description: 'Atención de calidad.',
+  hours: { days: { lunes: '9–18', martes: '9–18', miércoles: '9–18', jueves: '9–18', viernes: '9–18', sábado: '9–13', domingo: 'Cerrado' } } as never,
+  ...over,
+});
+const ig = (over: Partial<InstagramAnalysis> = {}): InstagramAnalysis => ({
+  url: 'https://www.instagram.com/negocio/', username: 'negocio', status: 'ok', links: [], contactAvailable: false, linktreeLinks: [],
+  linktreeChecked: false, manualBooking: false, notes: [], checkedAt: '', ...over,
+});
+
+function forBusiness(p: BusinessProfile, instagram?: InstagramAnalysis, id = 'p1', variant = 0) {
+  const a = buildAnalysis('u', p, undefined, { durationMs: 0 }, buildChannelReport(p, undefined, instagram));
+  const det = DEFAULT_CATALOG.detect(p);
+  const rubroProfile = DEFAULT_CATALOG.profileFor(det?.key);
+  const d = { id, name: p.name!, verticalId: a.vertical.id, verticalLabel: a.vertical.label, problems: a.proposal.salesArguments, services: a.proposal.services, analysis: a, rubroProfile };
+  return { a, rubroProfile, m: buildMessages(d, SELLER, variant), sel: buildSelection(d, SELLER, variant), ins: buildInsight(d, SELLER, variant), d };
 }
 
-// "oportunidad" ya no está prohibida: la nueva regla comercial habla de UNA oportunidad concreta.
-const BANNED = /sin compromiso|oportunidad única|soluci[oó]n(es)? integral|potenciar|estimad[oa]|atentamente|le saluda|sinergia|apalancar|\bundefined\b|\bnull\b|\bNaN\b/i;
-const CTA = /¿(Te puedo mandar un audio de un minuto mostrándote lo que vi|Querés que te muestre dónde detecté esta oportunidad|Te interesa que te explique cómo lo resolvería)\?$/;
-const paragraphs = (t: string) => t.split(/\n\n/).length;
+const VET = prof({
+  name: 'Veterinaria Laprida', category: 'Veterinario', rating: 4.6, reviewCount: 168,
+  reviews: [{ rating: 1, ageDays: 10, hasOwnerResponse: false }, { rating: 2, ageDays: 25, hasOwnerResponse: false }, { rating: 5, ageDays: 30, hasOwnerResponse: true }],
+});
 
-test('mensaje de ventas: saludo, presentación, oportunidad, pérdida económica, beneficio y pregunta simple', () => {
-  const m = messagesFor({});
+test('Veterinaria Laprida: reconoce la reputación, habla de TURNOS y de la consecuencia, sin tecnicismos', () => {
+  const { m, ins, sel } = forBusiness(VET);
   const t = m.primerContacto;
-  assert.match(t, /^(Hola|Buenas|Buen día)/);
-  assert.match(t, /Soy Martín, de Rosario\./);
-  assert.match(t, /Estuve (viendo|mirando( cómo aparece)?) Parrilla Don Tito/);
-  assert.match(t, /(mesas?|pedidos?|reservas?)/, 'dolor en el lenguaje de un restaurante');
-  assert.match(t, CTA, 'termina con una pregunta simple de bajo compromiso');
+  assert.match(t, /^Hola|^Buenas|^Buen día/);
+  assert.match(t, /Soy Iván Bologna, Gestor de Presencia Online\./);
+  assert.match(t, /Veterinaria Laprida/);
+  assert.match(t, /más de 160 reseñas en Google y una muy buena puntuación/, 'lo que hace bien, con datos reales');
+  assert.match(t, /hacer una consulta o pedir un turno/, 'vocabulario de veterinaria');
+  assert.match(t, /otra veterinaria/);
+  assert.match(t, /\bpuede\b/, 'consecuencia prudente');
+  assert.doesNotMatch(t, /\breserv/i, 'una veterinaria habla de turnos, no de reservas');
+  assert.doesNotMatch(t, /visible de escribirles por WhatsApp desde Google/, 'no es la frase técnica de antes');
+  assert.match(t, /(un minuto|\?)/, 'CTA simple');
   const n = wordCount(t);
-  assert.ok(n >= 80 && n <= 150, `${n} palabras:\n${t}`);
-  assert.ok(paragraphs(t) <= 2, 'máximo 2 párrafos');
-  assert.ok(wordCount(m.primerContactoCorto) < wordCount(m.primerContactoMedio) && wordCount(m.primerContactoMedio) < n, 'corto < mediano < completo');
-  assert.match(m.primerContactoMedio, CTA);
-  assert.match(m.primerContactoCorto, CTA);
+  assert.ok(n >= 60 && n <= 150, `${n} palabras`);
+  assert.equal(sel[0]!.text, 'Sin canal rápido de consulta', 'la prioridad de una veterinaria: el canal de consultas');
+  assert.ok(ins.calidad.every((c) => c.ok), `control de calidad: ${ins.calidad.filter((c) => !c.ok).map((c) => c.label).join('; ')}`);
+  for (const text of Object.values(m)) assert.doesNotMatch(text, /\breserv/i);
+});
+
+test('Pet shop: catálogo y pedidos; NUNCA turnos ni reservas', () => {
+  const p = prof({ name: 'Pet Shop Mundo Animal', category: 'Tienda de mascotas', rating: 4.3, reviewCount: 55, socialLinks: ['https://www.instagram.com/mundoanimal/'] });
+  const { m, sel, rubroProfile, a } = forBusiness(p, ig({ username: 'mundoanimal' }));
+  assert.equal(rubroProfile.key, 'pet-shops');
+  for (const text of Object.values(m)) assert.doesNotMatch(text, /\b(turnos?|reserv\w*)\b/i, `pet shop con turnos/reservas:\n${text}`);
+  assert.equal(sel[0]!.text, 'Sin catálogo de productos', 'lo primero para un pet shop: dónde ver productos y precios');
+  const report = analyzeOpportunities(a, rubroProfile);
+  assert.ok(!report.opportunities.some((o) => o.topic === 'agenda'), 'ninguna oportunidad de agenda');
+});
+
+test('Barbería: turnos; si los turnos existen solo detrás de Instagram → Linktree, dice que están escondidos', () => {
+  const p = prof({ name: 'Aurum Barber Club', category: 'Barbería', rating: 4.8, reviewCount: 90, socialLinks: ['https://www.instagram.com/aurum/'] });
+  const { m, sel, a } = forBusiness(p, ig({ username: 'aurum', links: ['https://linktr.ee/aurum'], externalUrl: 'https://linktr.ee/aurum', linktree: 'https://linktr.ee/aurum', linktreeChecked: true, linktreeLinks: ['https://booksy.com/es-ar/1_aurum'], bookingUrl: 'https://booksy.com/es-ar/1_aurum', bookingProvider: 'Booksy' }));
+  assert.ok(!a.audit.findings.some((f) => f.id === 'booking-none'), 'no dice "falta de turnos"');
+  assert.equal(sel[0]!.findingId, 'booking-hidden');
+  assert.match(m.primerContacto, /el sistema de turnos existe, pero está escondido detrás de varios pasos/);
+  for (const text of Object.values(m)) assert.doesNotMatch(text, /\breserv/i);
+});
+
+test('Restaurante: puede hablar de reservas', () => {
+  const p = prof({ name: 'Al Horno con Papas', category: 'Restaurante', rating: 4.5, reviewCount: 120 });
+  const { m, rubroProfile } = forBusiness(p);
+  assert.equal(rubroProfile.key, 'restaurantes');
+  assert.match(Object.values(m).join('\n'), /reserv/i, 'en un restaurante sí se habla de reservas');
+  assert.match(m.primerContacto, /otro restaurante/);
+});
+
+test('el ranking depende del rubro (no siempre WhatsApp → reservas → reseñas)', () => {
+  const tops = new Map<string, string>();
+  for (const [name, category] of [['Veterinaria Laprida', 'Veterinario'], ['Pet Shop Mundo', 'Tienda de mascotas'], ['Barbería Uno', 'Barbería'], ['Inmobiliaria Sur', 'Inmobiliaria'], ['Gimnasio Fuerza', 'Gimnasio']]) {
+    const { sel } = forBusiness(prof({ name, category, rating: 4.6, reviewCount: 120 }));
+    tops.set(category, sel.map((s) => s.findingId).join(','));
+  }
+  assert.ok(new Set(tops.values()).size >= 3, `rankings iguales para todos: ${[...tops.entries()].join(' | ')}`);
+  assert.match(tops.get('Barbería')!, /^booking-none/, 'barbería: turnos primero');
+  assert.match(tops.get('Tienda de mascotas')!, /^catalog-none/, 'pet shop: catálogo primero');
+  assert.match(tops.get('Veterinario')!, /^wa-not-visible/, 'veterinaria: canal de consultas primero');
+});
+
+test('sin oportunidades repetidas ni del mismo tema en el mensaje', () => {
+  for (const [name, category] of [['Veterinaria Laprida', 'Veterinario'], ['Barbería Uno', 'Barbería'], ['Pet Shop Mundo', 'Tienda de mascotas']]) {
+    const { a, rubroProfile, m } = forBusiness(prof({ name, category, rating: 4.6, reviewCount: 120 }));
+    const r = analyzeOpportunities(a, rubroProfile);
+    assert.equal(new Set(r.opportunities.map((o) => o.id)).size, r.opportunities.length, 'ids únicos');
+    const top3 = r.opportunities.slice(0, 3).map((o) => o.topic);
+    assert.equal(new Set(top3).size, top3.length, `temas repetidos en el top 3 de ${name}: ${top3}`);
+    for (const o of r.opportunities) {
+      assert.ok(o.source && o.evidence && o.confidence, 'fuente, evidencia y confianza');
+      assert.match(o.consequence, /\b(puede|pueden|podría|suele|muchos|mucha gente|algunos|algunas|casi todo)\b/i, `consecuencia prudente: ${o.consequence}`);
+    }
+    const sentences = m.primerContacto.split(/(?<=[.?])\s+/);
+    assert.equal(new Set(sentences).size, sentences.length, 'no repite frases');
+  }
+});
+
+test('estilos según el contexto y "Otra versión" cambia de enfoque', () => {
+  const styles = new Set<string>();
+  const texts = new Set<string>();
+  for (let v = 0; v < 6; v++) {
+    const { m, ins } = forBusiness(VET, undefined, 'p1', v);
+    styles.add(ins.estilo);
+    texts.add(m.primerContacto);
+    assert.ok(ins.calidad.every((c) => c.ok), `v${v}: ${ins.calidad.filter((c) => !c.ok).map((c) => c.label).join('; ')}`);
+  }
+  assert.ok(styles.size >= 3, `pocos estilos: ${[...styles]}`);
+  assert.ok(texts.size >= 5);
+  // Contexto: con buena reputación el primer mensaje la usa; sin reseñas, no la inventa.
+  assert.match(forBusiness(VET).m.primerContacto, /muy buena puntuación|reputación/);
+  const nuevo = forBusiness(prof({ name: 'Veterinaria Nueva', category: 'Veterinario', rating: undefined, reviewCount: 2, reviews: [] }));
+  assert.doesNotMatch(nuevo.m.primerContacto, /reputación|muy buena puntuación|más de \d+ reseñas/);
+});
+
+test('Instagram: versión más corta; WhatsApp completo, mediano y corto', () => {
+  const { m } = forBusiness(VET);
+  assert.ok(wordCount(m.instagram) <= 50 && wordCount(m.instagram) < wordCount(m.primerContactoCorto));
+  assert.ok(wordCount(m.primerContactoCorto) < wordCount(m.primerContactoMedio) && wordCount(m.primerContactoMedio) < wordCount(m.primerContacto));
+  assert.match(m.instagram, /Veterinaria Laprida/);
   assert.match(m.seguimiento, /avisame y no te escribo más/);
-  for (const text of Object.values(m)) assert.doesNotMatch(text, BANNED);
 });
 
-test('ningún tipo de problema produce textos rotos', () => {
-  const variants: Array<Partial<BusinessProfile>> = [
-    {},
-    { reviewCount: 4, rating: 4.9, isClaimed: true },
-    { website: 'https://instagram.com/x' },
-    { permanentlyClosed: true },
-    { category: 'Peluquería', name: 'Lola', reviews: [] },
-    { category: 'Dentista', name: 'Consultorio Pérez', hours: undefined, photoCount: 3 },
-  ];
-  for (const [i, v] of variants.entries()) {
-    const site = v.website ? emptyAnalysis(v.website) : undefined;
-    for (const text of Object.values(messagesFor(v, `id-${i}`, undefined, site))) {
-      assert.doesNotMatch(text, BANNED, text);
-      assert.doesNotMatch(text, /\.\.|\s[.,:]|:\s*[.:]/, text);
-    }
-  }
+test('control de calidad: detecta tecnicismos, spam, cifras inventadas y vocabulario equivocado', () => {
+  const vet = DEFAULT_CATALOG.profileFor('veterinarias');
+  const pet = DEFAULT_CATALOG.profileFor('pet-shops');
+  const bad = (t: string, r = vet) => reviewMessage(t, 'completo', { name: 'X', rubro: r }).filter((c) => !c.ok).map((c) => c.label);
+  const base = 'Hola. Soy Iván. Estuve viendo X y puede que pierdan consultas. '.repeat(6) + '¿Te mando un video?';
+  assert.deepEqual(bad(base), []);
+  assert.ok(bad(`${base} Les falta un CTA y SEO.`).some((l) => /tecnicismos/.test(l)));
+  assert.ok(bad(`${base} Están perdiendo 30 clientes por mes.`).some((l) => /cifras/.test(l)));
+  assert.ok(bad(`${base} Con reservas online mejora.`).some((l) => /Vocabulario/.test(l)), 'veterinaria con "reservas"');
+  assert.ok(bad(`${base} Sin turnos online.`, pet).some((l) => /Vocabulario/.test(l)), 'pet shop con "turnos"');
+  assert.ok(bad(`${base} Es una oportunidad única, sin compromiso.`).some((l) => /spam/.test(l)));
 });
 
-test('sin nombre configurado deja un marcador visible; variantes estables por prospecto', () => {
-  const m = messagesFor({}, 'x', { sellerName: '', sellerCity: '' });
-  assert.match(m.primerContacto, /Soy \[tu nombre\]\. Estuve/);
-  assert.equal(messagesFor({}, 'mismo').primerContacto, messagesFor({}, 'mismo').primerContacto);
-  const distinct = new Set(Array.from({ length: 12 }, (_, i) => messagesFor({}, `seed-${i}`).primerContacto));
-  assert.ok(distinct.size >= 3, `pocas variantes: ${distinct.size}`);
-});
-
-test('"Otra versión": cada variante cambia el texto, sin inventar datos ni frases prohibidas', () => {
-  const p = { ...base };
-  const a = buildAnalysis('u', p, undefined, { durationMs: 0 });
-  const input = { id: 'p1', name: p.name!, verticalId: a.vertical.id, verticalLabel: a.vertical.label, problems: a.proposal.salesArguments, services: a.proposal.services, analysis: a };
-  const seller = { sellerName: 'Martín', sellerCity: 'Rosario', sellerBusiness: 'Presencia Total' };
-  // La versión 0 es la de siempre.
-  assert.deepEqual(buildMessages(input, seller, 0), buildMessages(input, seller));
-  const seen = new Set<string>();
-  for (let v = 0; v < 8; v++) {
-    const m = buildMessages(input, seller, v);
+test('todos los rubros: mensajes armados, con su vocabulario, sin frases prohibidas ni textos rotos', () => {
+  for (const r of BUILTIN_RUBROS) {
+    const p = prof({ name: `${r.label} Central`, category: r.label.replace(/s$/, ''), rating: 4.5, reviewCount: 80 });
+    const { m, rubroProfile, ins } = forBusiness(p, undefined, `id-${r.key}`);
+    assert.equal(rubroProfile.key, r.key, `${r.label} detectado`);
     for (const text of Object.values(m)) {
-      assert.doesNotMatch(text, BANNED, `variante ${v}: ${text}`);
-      assert.doesNotMatch(text, /puedo que|puedo un /, `redacción rota en variante ${v}`);
+      assert.doesNotMatch(text, BANNED, `${r.key}: ${text}`);
+      assert.doesNotMatch(text, /\.\.|\s[.,:]|\bundefined\b/, `${r.key}: ${text}`);
+      for (const b of BANNED_PHRASES) assert.ok(!text.toLowerCase().includes(b), `${r.key}: "${b}"`);
+      if (!r.booking) assert.doesNotMatch(text, /\b(turnos?|reserv\w*)\b/i, `${r.key} no agenda:\n${text}`);
+      if (r.booking === 'turnos') assert.doesNotMatch(text, /\breserv/i, `${r.key} usa turnos:\n${text}`);
     }
-    for (const k of ['primerContacto', 'primerContactoMedio', 'primerContactoCorto'] as const) {
-      assert.match(m[k], /Parrilla Don Tito/);
-      assert.match(m[k], /Martín/);
-      assert.match(m[k], CTA, `${k} v${v}`);
-    }
-    const n = wordCount(m.primerContacto);
-    assert.ok(n >= 80 && n <= 150, `variante ${v}: ${n} palabras`);
-    seen.add(m.primerContacto);
-  }
-  assert.ok(seen.size >= 6, `deberían salir versiones distintas (salieron ${seen.size} de 8)`);
-  // Varía también qué oportunidad abre el mensaje.
-  const leads = new Set([0, 1, 2, 3, 4, 5].map((v) => buildSelection(input, seller, v)[0]?.findingId));
-  assert.ok(leads.size >= 2, 'la oportunidad principal debería rotar entre versiones');
-  // Motivo comercial, dolor y beneficio acompañan a cada versión y aparecen en el texto completo.
-  for (let v = 0; v < 4; v++) {
-    const ins = buildInsight(input, seller, v);
-    const m = buildMessages(input, seller, v);
-    assert.ok(ins.motivo && ins.dolor && ins.beneficio && ins.rubro === 'Gastronomía');
-    assert.ok(m.primerContacto.includes(ins.dolor), 'el dolor económico está en el mensaje');
+    assert.ok(ins.calidad.every((c) => c.ok), `${r.key}: ${ins.calidad.filter((c) => !c.ok).map((c) => c.label).join('; ')}`);
   }
 });
 
-test('nunca solo el problema: cada oportunidad, en cada rubro, trae consecuencia, pérdida, beneficio y pregunta', () => {
-  const rubros: Array<[string, string, string, RegExp]> = [
-    ['Barbería El Corte', 'Barbería', 'Barbería', /turno|agenda/],
-    ['Parrilla Don Tito', 'Parrilla', 'Gastronomía', /mesa|pedido|reserva/],
-    ['Gimnasio Fuerza', 'Gimnasio', 'Gimnasio', /socio|clase|anot/],
-    ['Estética Bella', 'Centro de estética', 'Estética y peluquería', /turno|precio|ocupación|confianza|elig/],
-    ['Taller El Rayo', 'Taller mecánico', 'Taller', /taller|cliente|consulta/],
-    ['Consultorio Pérez', 'Dentista', 'Salud', /paciente|turno/],
-    ['Ferretería Central', 'Ferretería', 'Negocio local', /cliente|consulta|venta|reserva|competencia|interesad/],
-  ];
-  const profile = (name: string, category: string): BusinessProfile => ({
-    ...base, name, category, rating: 3.8, reviewCount: 12, photoCount: 4, hours: { days: { lunes: '9–18', martes: '9–18' } } as never,
-  });
-  const ids = Object.keys(PITCHES);
-  assert.deepEqual(ids.filter((id) => !ANGLES[id]), [], 'toda oportunidad tiene su ángulo de venta');
-  for (const [name, category, label, pain] of rubros) {
-    const prof = profile(name, category);
-    const a = buildAnalysis('u', prof, undefined, { durationMs: 0 });
-    for (const id of ids) {
-      const problems = [{ findingId: id, area: 'maps', problem: '', impact: 'Alto', reason: '', serviceIds: ['maps'], service: '', benefit: '', level: 'confirmado' }] as never;
-      const input = { id: `${name}-${id}`, name, verticalId: a.vertical.id, verticalLabel: a.vertical.label, problems, services: [], analysis: { ...a, website: { ...emptyAnalysis('https://x.com'), loadTimeMs: 7000 }, audit: { ...a.audit, metrics: { ...a.audit.metrics, daysSinceLastReview: 200 } } } };
-      const m = buildMessages(input, { sellerName: 'Iván Bologna', sellerBusiness: 'Gestor de Presencia Online' });
-      const sel = buildSelection(input, { sellerName: 'Iván' });
-      if (!sel.length) continue; // la plantilla no aplica a estos datos (p. ej. falta un dato): no se inventa
-      const ins = buildInsight(input, { sellerName: 'Iván' });
-      assert.equal(ins.rubro, label, `${name}`);
-      const t = m.primerContacto;
-      const n = wordCount(t);
-      assert.ok(n >= 80 && n <= 150, `${name}/${id}: ${n} palabras\n${t}`);
-      assert.ok(paragraphs(t) <= 2, `${name}/${id}: más de 2 párrafos`);
-      assert.match(t, CTA, `${name}/${id}`);
-      assert.match(t, pain, `${name}/${id}: el dolor no está en el lenguaje del rubro\n${t}`);
-      assert.ok(t.includes(ins.dolor) && t.includes(ins.beneficio), `${name}/${id}: falta pérdida o beneficio`);
-      assert.ok(wordCount(m.primerContactoMedio) <= 110, `${name}/${id}: mediano largo (${wordCount(m.primerContactoMedio)})`);
-      assert.ok(wordCount(m.primerContactoCorto) <= 75, `${name}/${id}: corto largo (${wordCount(m.primerContactoCorto)})`);
-      assert.equal(paragraphs(m.primerContactoCorto), 1);
-      for (const text of Object.values(m)) {
-        assert.doesNotMatch(text, BANNED, `${name}/${id}`);
-        assert.doesNotMatch(text, /\.\.|\s[.,:]|undefined|\bNaN\b/, `${name}/${id}: ${text}`);
-        for (const b of BANNED_PHRASES) assert.ok(!text.toLowerCase().includes(b), `${name}/${id}: "${b}"`);
-      }
-    }
-  }
+test('sin oportunidades confirmadas: mensaje honesto, sin inventar problemas', () => {
+  const ok = prof({ name: 'Barbería Perfecta', category: 'Barbería', rating: 4.9, reviewCount: 380, website: 'https://perfecta.com.ar', hasBooking: true, bookingUrl: 'https://booksy.com/x', photoCount: 120, posts: [{ ageDays: 3 }] as never });
+  const site = { ...emptyAnalysis(ok.website!), reachable: true, https: true, whatsapp: { hasLink: true, links: ['https://wa.me/5491144445555'], hasFloatingButton: true }, booking: { hasOnlineBooking: true, providers: ['Booksy'] }, contact: { phoneLinks: ['tel:1'], emailLinks: [], hasContactForm: true, hasAddress: true, contactAboveFold: true }, scores: { visual: 90, mobile: 90, speed: 90, contact: 90 } };
+  const a = buildAnalysis('u', ok, site, { durationMs: 0 }, buildChannelReport(ok, site));
+  const rubroProfile = DEFAULT_CATALOG.profileFor('barberias');
+  const d = { id: 'p', name: ok.name!, verticalId: a.vertical.id, verticalLabel: a.vertical.label, problems: a.proposal.salesArguments, services: a.proposal.services, analysis: a, rubroProfile };
+  const sel = buildSelection(d, SELLER);
+  if (!sel.length) assert.match(buildMessages(d, SELLER).primerContacto, /no te voy a inventar problemas/);
+  for (const s of sel) assert.notEqual(a.audit.findings.find((f) => f.id === s.findingId)?.level, 'probable');
 });

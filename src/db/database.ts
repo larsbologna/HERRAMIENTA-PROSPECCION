@@ -231,6 +231,24 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE generated_prospects ADD COLUMN discard_reason TEXT;
   ALTER TABLE generated_prospects ADD COLUMN analysis_error TEXT;
   `,
+  // 6 · Rubros: rubro detectado o asignado a cada prospecto (con fuente y confianza), rubros
+  //     personalizados, oportunidades y contactos resumidos para listar rápido. Solo agrega.
+  `
+  CREATE TABLE rubros (
+    key           TEXT PRIMARY KEY,
+    label         TEXT NOT NULL,
+    model         TEXT NOT NULL CHECK (model IN ('turnos', 'reservas', 'productos', 'consultas')),
+    keywords_json TEXT NOT NULL DEFAULT '[]',
+    user_id       TEXT REFERENCES users(id) ON DELETE SET NULL,
+    created_at    TEXT NOT NULL
+  );
+  ALTER TABLE prospects ADD COLUMN rubro_key TEXT;
+  ALTER TABLE prospects ADD COLUMN rubro_source TEXT;
+  ALTER TABLE prospects ADD COLUMN rubro_confidence TEXT;
+  ALTER TABLE prospects ADD COLUMN opps_json TEXT;
+  ALTER TABLE prospects ADD COLUMN contact_json TEXT;
+  CREATE INDEX idx_prospects_rubro ON prospects(rubro_key, status);
+  `,
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

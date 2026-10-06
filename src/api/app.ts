@@ -8,7 +8,7 @@ import { ROOT_DIR, config } from '../config/index.js';
 import { DB_FILE } from '../crm/index.js';
 import { NotFoundError, endOfToday, type CrmRepository } from '../crm/repository.js';
 import { dashboard, metrics, personalKpis } from '../crm/stats.js';
-import { ACTIVITY_TYPES, MANUAL_ACTIVITY_TYPES, STATUSES, isStatus, type FollowupStatus, type ProspectFilter, type Settings } from '../crm/types.js';
+import { ACTIVITY_TYPES, MANUAL_ACTIVITY_TYPES, QUICK_STATUSES, STATUSES, isStatus, type FollowupStatus, type ProspectFilter, type Settings } from '../crm/types.js';
 import { DEFAULT_VERTICAL, VERTICALS } from '../domain/verticals.js';
 import { buildInsight, buildMessages, buildSelection, MESSAGE_KEYS, type MessageKey } from '../messages/whatsapp.js';
 import { generateProspects as defaultGenerate, MAX_CANTIDAD } from '../generator/generator.js';
@@ -19,7 +19,7 @@ import { isVerified } from '../domain/reliability.js';
 import { ProspectingJobs, type JobState } from '../prospecting/job.js';
 import { opportunityProfile } from '../prospecting/opportunities.js';
 import type { ProspectingRepository } from '../prospecting/repository.js';
-import { RUBROS, rubroKey, zonaKey } from '../prospecting/rubros.js';
+import { zonaKey } from '../prospecting/rubros.js';
 import { SERVICE_CATALOG } from '../proposal/services.js';
 import {
   HttpError,
@@ -142,10 +142,18 @@ export function createApp(deps: AppDeps): http.Server {
     const owner = needGenerator().ownerOf(id);
     if (owner === undefined || (!isAdmin(u) && owner !== u.id)) throw new NotFoundError('Prospecto generado no encontrado.');
   };
+  /** El prospecto con el perfil de SU rubro (vocabulario y oportunidades que tienen sentido). */
+  const withRubro = <T extends { rubroKey: string | null }>(d: T) => ({ ...d, rubroProfile: repo.catalog().profileFor(d.rubroKey) });
+  /** Clave de rubro desde un filtro ("Veterinarias", "veterinaria", "veterinarias" → veterinarias). */
+  const rubroParam = (v: string | null) => (!v ? undefined : v === 'none' ? 'none' : repo.catalog().resolve(v)?.key ?? v);
   const detailFor = (u: User, id: string) => {
-    const detail = repo.get(id);
+    const detail = withRubro(repo.get(id));
     const seller = sellerFor(u);
-    return { ...detail, messages: buildMessages(detail, seller), messageSelection: buildSelection(detail, seller), messageInsight: buildInsight(detail, seller) };
+    return {
+      ...detail, rubroProfile: undefined,
+      messages: buildMessages(detail, seller), messageSelection: buildSelection(detail, seller), messageInsight: buildInsight(detail, seller),
+      opportunityProfile: detail.analysis?.proposal ? opportunityProfile(detail.analysis, detail.rubroProfile) : null,
+    };
   };
 
   /** La búsqueda en curso la ve quien la inició (y un administrador). */
@@ -153,7 +161,7 @@ export function createApp(deps: AppDeps): http.Server {
 
   /** Datos del Modo Prospección Rápida: lo justo para decidir y contactar, sin el análisis completo. */
   const quickCard = (u: User, id: string) => {
-    const d = repo.get(id);
+    const d = withRubro(repo.get(id));
     const a = d.analysis;
     const ch = a?.channels;
     const q = a?.profile?.dataQuality;
@@ -177,7 +185,9 @@ export function createApp(deps: AppDeps): http.Server {
       whatsappSource: ch?.whatsappSource ?? null,
       instagramUrl: ch?.instagramUrl ?? null,
       websiteUrl: ownWeb ?? null,
-      opportunities: a?.proposal ? opportunityProfile(a) : null,
+      rubroKey: d.rubroKey, rubroLabel: d.rubroLabel, rubroSource: d.rubroSource, rubroConfidence: d.rubroConfidence,
+      rubroModel: d.rubroProfile.key === 'general' ? null : d.rubroProfile.model,
+      opportunities: a?.proposal ? opportunityProfile(a, d.rubroProfile) : null,
       messages: buildMessages(d, seller),
       messageInsight: buildInsight(d, seller),
     };
@@ -250,6 +260,7 @@ export function createApp(deps: AppDeps): http.Server {
 
     .on('GET', '/api/meta', ({ user }) => ({
       statuses: STATUSES,
+      quickStatuses: QUICK_STATUSES,
       activityTypes: MANUAL_ACTIVITY_TYPES.map((id) => ({ id, label: ACTIVITY_TYPES[id] })),
       verticals: [...VERTICALS, DEFAULT_VERTICAL].map((v) => ({ id: v.id, label: v.label })),
       services: Object.values(SERVICE_CATALOG).map((s) => ({ id: s.id, name: s.name })),
@@ -384,6 +395,21 @@ export function createApp(deps: AppDeps): http.Server {
       return { item: gen.linkProspect(params.id!, prospectId) };
     })
 
+    // ================================================================ rubros
+    // Todos los rubros (de fábrica + creados) y cuántos prospectos tiene cada uno (para los filtros).
+    .on('GET', '/api/rubros', ({ user }) => {
+      const usage = new Map(repo.rubroUsage(isAdmin(user) ? undefined : user.id).map((u) => [u.key, u.count]));
+      return {
+        items: repo.catalog().all().map((r) => ({ key: r.key, label: r.label, model: r.model, booking: r.booking, custom: !!r.custom, count: usage.get(r.key) ?? 0 }))
+          .sort((x, y) => x.label.localeCompare(y.label, 'es')),
+        sinRubro: usage.get(null) ?? 0,
+      };
+    })
+    .on('POST', '/api/rubros', async ({ req, user }) => {
+      const body = await readJson<{ label?: unknown; model?: unknown; keywords?: unknown }>(req);
+      return repo.createRubro(body, user.id);
+    })
+
     // ================================================================ prospección automática
     // Pantalla principal: rubros, zonas, campañas con su resumen y la búsqueda en curso.
     .on('GET', '/api/prospeccion', ({ user }) => {
@@ -393,7 +419,7 @@ export function createApp(deps: AppDeps): http.Server {
         .map((c) => ({ ...c, summary: prospecting.summary(c.id, scope) }))
         .filter((c) => c.summary.analyzed > 0 || c.summary.found > 0 || isAdmin(user));
       return {
-        rubros: RUBROS.map((r) => r.label),
+        rubros: repo.catalog().all().map((r) => r.label).sort((x, y) => x.localeCompare(y, 'es')),
         zonas: [...new Set(['Quilmes', 'Berazategui', 'Bernal', ...prospecting.zonas()])],
         maxCantidad: MAX_CANTIDAD,
         campaigns,
@@ -427,7 +453,7 @@ export function createApp(deps: AppDeps): http.Server {
       const potencial = query.get('potencial');
       const items = repo.list({
         campaignId: query.get('campana') || undefined,
-        rubro: query.get('rubro') ? rubroKey(query.get('rubro')!) : undefined,
+        rubro: rubroParam(query.get('rubro')),
         zona: query.get('zona') ? zonaKey(query.get('zona')!) : undefined,
         status: estado === 'pendientes' ? 'sin_contactar' : estado,
         potential: potencial === 'alto' || potencial === 'medio' || potencial === 'bajo' ? potencial : undefined,
@@ -445,7 +471,7 @@ export function createApp(deps: AppDeps): http.Server {
       return {
         items: prospecting.queue({
           campaignId: query.get('campana') || undefined,
-          rubro: query.get('rubro') ? rubroKey(query.get('rubro')!) : undefined,
+          rubro: rubroParam(query.get('rubro')),
           zona: query.get('zona') ? zonaKey(query.get('zona')!) : undefined,
           potential: potencial === 'alto' || potencial === 'medio' || potencial === 'bajo' ? potencial : undefined,
           userId: isAdmin(user) ? undefined : user.id,
@@ -543,7 +569,7 @@ export function createApp(deps: AppDeps): http.Server {
       if (!(MESSAGE_KEYS as readonly string[]).includes(tipo)) throw new HttpError(400, 'Tipo de mensaje inválido.');
       const key = tipo as MessageKey;
       const requested = Math.max(1, Math.min(10_000, Number.parseInt(query.get('variante') ?? '1', 10) || 1));
-      const detail = repo.get(params.id!);
+      const detail = withRubro(repo.get(params.id!));
       const seller = sellerFor(user);
       const previous = buildMessages(detail, seller, requested - 1)[key];
       // Si la combinación coincide con la anterior, se prueba la siguiente (hasta 12 intentos).
@@ -569,6 +595,7 @@ export function createApp(deps: AppDeps): http.Server {
         user.id,
       );
       if (body.status !== undefined) deps.generator?.syncFromCrm(params.id!, String(body.status));
+      if (body.rubro !== undefined) repo.setRubro(params.id!, body.rubro ? String(body.rubro) : null, user.id);
       return detailFor(user, params.id!);
     })
     .on('DELETE', '/api/prospects/:id', ({ params }) => {

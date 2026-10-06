@@ -44,12 +44,18 @@ export const scoreClass = (s) => (s >= 70 ? '' : s >= 45 ? 'mid' : 'low');
 export const scoreHtml = (s) => `<span class="score ${scoreClass(s)} num"><span class="score-bar"><i style="width:${Math.max(4, s)}%"></i></span>${s}</span>`;
 
 let STATUSES = [];
-export function setStatuses(list) { STATUSES = list; }
+let QUICK = [];
+export function setStatuses(list, quick = []) { STATUSES = list; QUICK = quick; }
+/** Estados simples para el día a día (No contactado, Contactado, Respondió, Sin respuesta, No interesado, Cliente). */
+export const quickStatuses = () => (QUICK.length ? STATUSES.filter((s) => QUICK.includes(s.id)) : STATUSES);
 export const statuses = () => STATUSES;
 export const statusLabel = (id) => STATUSES.find((s) => s.id === id)?.label ?? id;
 export const statusBadge = (id) => `<span class="badge st-${esc(id)}">${esc(statusLabel(id))}</span>`;
-export function statusOptions(selected) {
-  return STATUSES.map((s) => `<option value="${s.id}" ${s.id === selected ? 'selected' : ''}>${esc(s.label)}</option>`).join('');
+export function statusOptions(selected, { quick = true } = {}) {
+  const list = quick ? quickStatuses() : STATUSES;
+  // Un estado anterior que no está entre los simples se sigue mostrando (no se pierde).
+  const extra = selected && !list.some((s) => s.id === selected) ? STATUSES.filter((s) => s.id === selected) : [];
+  return [...list, ...extra].map((s) => `<option value="${s.id}" ${s.id === selected ? 'selected' : ''}>${esc(s.label)}</option>`).join('');
 }
 
 // ---------- Íconos (trazos simples, 24×24) ----------

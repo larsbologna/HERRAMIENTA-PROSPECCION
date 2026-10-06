@@ -6,6 +6,7 @@ import type { AnalysisResult, AreaScore, Budget, SalesArgument, ServiceRecommend
 export const STATUSES = [
   { id: 'sin_contactar', label: 'No contactado', stage: 0 },
   { id: 'contactado', label: 'Contactado', stage: 1 },
+  { id: 'sin_respuesta', label: 'Sin respuesta', stage: 1 },
   { id: 'respondio', label: 'Respondió', stage: 2 },
   { id: 'interesado', label: 'Interesado', stage: 2 },
   { id: 'reunion', label: 'Reunión agendada', stage: 3 },
@@ -13,10 +14,15 @@ export const STATUSES = [
   { id: 'cliente', label: 'Cliente', stage: 5 },
   // "Contactar después" y "No interesado" no avanzan el embudo: conservan la etapa máxima alcanzada.
   { id: 'contactar_despues', label: 'Contactar después', stage: -1 },
-  { id: 'perdido', label: 'No interesado / perdido', stage: -1 },
+  { id: 'perdido', label: 'No interesado', stage: -1 },
 ] as const;
 
 export type ProspectStatus = (typeof STATUSES)[number]['id'];
+
+/** Estados simples para trabajar el día a día (los demás siguen existiendo para datos anteriores). */
+export const QUICK_STATUSES: ProspectStatus[] = ['sin_contactar', 'contactado', 'respondio', 'sin_respuesta', 'perdido', 'cliente'];
+/** "Respondieron": cualquier estado al que se llega después de una respuesta. */
+export const RESPONDED_STATUSES: ProspectStatus[] = ['respondio', 'interesado', 'reunion', 'propuesta'];
 
 export function isStatus(value: unknown): value is ProspectStatus {
   return STATUSES.some((s) => s.id === value);
@@ -53,6 +59,7 @@ export const ACTIVITY_TYPES = {
   presupuesto: 'Presupuesto personalizado',
   configuracion: 'Cambio de configuración',
   generador: 'Generador de prospectos',
+  rubro: 'Rubro asignado',
 } as const;
 
 export type ActivityType = keyof typeof ACTIVITY_TYPES;
@@ -92,6 +99,15 @@ export interface ProspectSummary {
   /** Potencial comercial (alto / medio / bajo) y su motivo, calculado con datos verificados. */
   potentialLevel: 'alto' | 'medio' | 'bajo' | null;
   potentialReason: string | null;
+  /** Rubro (normalizado) con su fuente y confianza. null = sin rubro (se asigna a mano). */
+  rubroKey: string | null;
+  rubroLabel: string | null;
+  rubroSource: string | null;
+  rubroConfidence: string | null;
+  /** Principales oportunidades confirmadas para su rubro (para listar sin abrir el análisis). */
+  opportunities: Array<{ id: string; title: string; area: string }>;
+  /** Contacto directo detectado (WhatsApp confirmado, Instagram, web propia). */
+  contact: { whatsappNumber?: string; instagramUrl?: string; websiteUrl?: string };
 }
 
 export interface Activity {

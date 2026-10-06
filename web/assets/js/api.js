@@ -69,6 +69,10 @@ export const api = {
   prospectingQueue: (params = {}) => request('GET', '/api/prospeccion/cola?' + new URLSearchParams(Object.entries(params).filter(([, v]) => v !== '' && v != null))),
   quickCard: (id) => request('GET', `/api/prospeccion/ficha/${encodeURIComponent(id)}`),
   contactResult: (id, body) => request('POST', `/api/prospeccion/${encodeURIComponent(id)}/resultado`, body),
+  // Rubros (de fábrica + creados por el usuario)
+  rubros: () => request('GET', '/api/rubros'),
+  createRubro: (body) => request('POST', '/api/rubros', body),
+  setRubro: (id, rubro) => request('PATCH', `/api/prospects/${encodeURIComponent(id)}`, { rubro }),
   followups: (params = {}) => request('GET', '/api/followups?' + new URLSearchParams(Object.entries(params).filter(([, v]) => v))),
 };
 

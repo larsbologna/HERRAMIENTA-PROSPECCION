@@ -145,7 +145,9 @@ test('sin falsos problemas de reservas: Booksy en el Linktree descarta "no tiene
   // No se VENDEN reservas (ni el problema ni el servicio); sí se reconoce que ya las tienen.
   const NO_SELL = /forma de reservar|sistemas? de reservas|turnos? online|agenda online|necesita.*reserv/i;
   for (const t of Object.values(messages(con))) assert.doesNotMatch(t, NO_SELL);
-  assert.match(messages(con).primerContacto, /ya tienen [^.]*reservas online/i);
+  // Los turnos existen, pero solo detrás de Instagram → Linktree: se dice eso (no "no tiene reservas").
+  assert.match(messages(con).primerContacto, /sistema de turnos existe, pero está escondido detrás de varios pasos/);
+  for (const t of Object.values(messages(con))) assert.doesNotMatch(t, /\breserv/i, 'una barbería habla de turnos');
 });
 
 test('reservas manuales por WhatsApp: el problema queda como probable y no va al mensaje', () => {
@@ -191,22 +193,22 @@ test('WhatsApp en Instagram: descarta "no tiene WhatsApp" y deja el número list
 
 // ---------------------------------------------------------------- mensajes
 
-test('mensaje personalizado: estructura de ventas, 80–150 palabras, máx. 2 párrafos, sin frases prohibidas', () => {
+test('mensaje personalizado: personalización, observación, consecuencia, oportunidad y CTA; sin frases prohibidas', () => {
   const a = analysisWith(barberia, ig());
   const m = messages(a);
   const t = m.primerContacto;
   assert.match(t, /^(Hola|Buenas|Buen día)/);
   assert.match(t, /Soy Iván Bologna, Gestor de Presencia Online/);
   assert.match(t, /Barbería 12 Navajas/);
-  assert.match(t, /\?$/, 'cierra con una pregunta');
+  assert.match(t, /(\?|un minuto[^.]*\.|sin vueltas\.)$/, 'cierra con un pedido simple');
+  assert.match(t, /\b(puede|podría)\b/, 'consecuencia prudente');
+  assert.doesNotMatch(t, /\breserv/i, 'una barbería habla de turnos');
   const n = wordCount(t);
-  assert.ok(n >= 80 && n <= 150, `${n} palabras:\n${t}`);
-  assert.ok(t.split('\n\n').length <= 2);
+  assert.ok(n >= 60 && n <= 150, `${n} palabras:\n${t}`);
   const sel = selection(a);
-  assert.ok(sel.length >= 1 && sel.length <= 2, 'una oportunidad principal (y a lo sumo una más)');
-  assert.ok(sel.every((s) => a.audit.findings.find((f) => f.id === s.findingId)?.level === 'confirmado'), 'solo argumentos confirmados');
-  const sorted = [...sel].sort((x, y) => x.priority - y.priority);
-  assert.deepEqual(sel.map((s) => s.findingId), sorted.map((s) => s.findingId), 'ordenados por prioridad comercial');
+  assert.ok(sel.length >= 1 && sel.length <= 3);
+  assert.ok(sel.every((s) => a.audit.findings.find((f) => f.id === s.findingId)?.level !== 'probable'), 'nunca hallazgos probables');
+  assert.equal(new Set(sel.map((s) => s.findingId)).size, sel.length, 'sin oportunidades repetidas');
   for (const text of Object.values(m)) {
     for (const b of BANNED_PHRASES) assert.ok(!text.toLowerCase().includes(b), `frase prohibida "${b}" en:\n${text}`);
     assert.doesNotMatch(text, /undefined|null|NaN|\.\./);
@@ -227,7 +229,7 @@ test('no se inventan problemas: sin nada confirmado, el mensaje lo dice con hone
     booking: { hasOnlineBooking: true, providers: ['Booksy'] }, scores: { visual: 90, mobile: 90, speed: 90, contact: 90 } };
   const a = buildAnalysis('u', ok, site, { durationMs: 0 }, buildChannelReport(ok, site, ig({ status: 'bloqueado' })));
   const sel = selection(a);
-  for (const s of sel) assert.equal(a.audit.findings.find((f) => f.id === s.findingId)?.level, 'confirmado');
+  for (const s of sel) assert.notEqual(a.audit.findings.find((f) => f.id === s.findingId)?.level, 'probable', 'nunca se usa un hallazgo probable');
   for (const id of ['booking-none', 'web-none', 'wa-not-visible']) assert.ok(!ids(a).includes(id), `${id} no debería existir`);
   if (sel.length === 0) assert.doesNotMatch(messages(a).primerContacto, /no tiene|no encontré|te faltan?/i);
 });
@@ -271,7 +273,7 @@ test('API: "Verificar presencia online" actualiza canales, argumentos y mensaje;
     assert.equal(channelOf(after.analysis.channels, 'reservas')?.status, 'encontrado');
     assert.ok(!after.analysis.audit.findings.some((f: { id: string }) => f.id === 'booking-none'));
     assert.doesNotMatch(after.messages.primerContacto, /forma de reservar|sistemas? de reservas/i, "no vende reservas");
-    assert.match(after.messages.primerContacto, /ya tienen [^.]*reservas online/i, "reconoce que ya las tiene");
+    assert.match(after.messages.primerContacto, /turnos existe, pero está escondido detrás de varios pasos/, 'los turnos existen pero están escondidos (Instagram → Linktree)');
     assert.ok(after.activities.some((x: { content: string }) => /Presencia online verificada/.test(x.content)));
 
     // Ajeno → 404 (como el resto del CRM).

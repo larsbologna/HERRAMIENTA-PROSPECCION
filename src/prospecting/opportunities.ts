@@ -1,36 +1,28 @@
 import type { ChannelId } from '../channels/crossCheck.js';
 import type { AnalysisResult } from '../domain/types.js';
-import { selectPitches, type ServiceTopic } from '../messages/pitch.js';
+import { analyzeOpportunities } from '../opportunities/engine.js';
+import { GENERAL_RUBRO, type RubroProfile } from '../rubros/catalog.js';
 
 /**
- * OPORTUNIDADES: qué tiene el negocio, qué no tiene y qué servicio ofrecerle POR QUÉ.
- * Solo a partir de argumentos confirmados: si el negocio ya tiene algo, no se ofrece.
+ * Resumen de oportunidades para la interfaz: qué TIENE el negocio, qué no tiene, qué no se pudo
+ * verificar, qué hace bien y qué oportunidades confirmadas hay (con fuente, evidencia y confianza).
  */
 
-export const TOPIC_SERVICE: Record<ServiceTopic, string> = {
-  'Google Maps': 'Optimización de Google Maps',
-  reseñas: 'Reseñas y reputación (QR para reseñas)',
-  'páginas web': 'Página web',
-  'reservas online': 'Sistema de reservas',
-  WhatsApp: 'WhatsApp para negocios',
-  automatizaciones: 'Automatización / WhatsApp con IA',
-  'menú online': 'Menú online',
-};
-
 const LABEL: Partial<Record<ChannelId, string>> = {
-  web: 'Página web', instagram: 'Instagram', whatsapp: 'WhatsApp', facebook: 'Facebook', reservas: 'Reservas', menu: 'Menú online',
+  web: 'Página web', instagram: 'Instagram', whatsapp: 'WhatsApp', facebook: 'Facebook', reservas: 'Turnos / reservas online', menu: 'Menú online',
 };
 
 export interface OpportunityProfile {
   has: string[];
   missing: string[];
   unverified: string[];
-  opportunities: Array<{ findingId: string; service: string; why: string }>;
-  /** "Página web + Sistema de reservas" */
+  strengths: string[];
+  opportunities: Array<{ findingId: string; title: string; area: string; observation: string; why: string; source: string; evidence: string; confidence: string }>;
+  /** "Sin canal rápido de consulta + Sin turnos online" */
   headline: string;
 }
 
-export function opportunityProfile(a: AnalysisResult): OpportunityProfile {
+export function opportunityProfile(a: AnalysisResult, rubro: RubroProfile = GENERAL_RUBRO): OpportunityProfile {
   const ch = a.channels;
   const has: string[] = [];
   const missing: string[] = [];
@@ -39,29 +31,20 @@ export function opportunityProfile(a: AnalysisResult): OpportunityProfile {
     for (const c of ch.channels) {
       const label = LABEL[c.id];
       if (!label) continue;
-      if (c.status === 'encontrado') has.push(c.id === 'reservas' && !c.url ? 'Reservas por WhatsApp/DM' : label);
+      // Un rubro que no agenda no muestra el canal de turnos/reservas (no tiene sentido para él).
+      if (c.id === 'reservas' && !rubro.booking && c.status !== 'encontrado') continue;
+      if (c.status === 'encontrado') has.push(c.id === 'reservas' && !c.url ? 'Turnos / reservas por WhatsApp o mensaje' : label);
       else if (c.status === 'no_encontrado') missing.push(label);
       else unverified.push(label);
     }
   } else if (a.profile.website) {
     has.push('Página web');
   }
-  const pitches = selectPitches({
-    name: a.profile.name ?? 'el negocio',
-    verticalId: a.vertical.id,
-    verticalLabel: a.vertical.label,
-    profile: a.profile,
-    website: a.website,
-    metrics: a.audit.metrics,
-    channels: ch,
-    problems: a.proposal.salesArguments.filter((s) => !s.serviceIds || s.serviceIds.length > 0),
-  }, 3);
-  // Si ya tiene web o WhatsApp, lo que se ofrece es MEJORARLO (nunca "hacerle" uno nuevo).
-  const hasWeb = has.includes('Página web');
-  const hasWa = has.includes('WhatsApp');
-  const serviceFor = (topic: ServiceTopic) =>
-    topic === 'páginas web' && hasWeb ? 'Mejora de la página web' : topic === 'WhatsApp' && hasWa ? 'Automatización de WhatsApp' : TOPIC_SERVICE[topic];
-  const opportunities = pitches.map((p) => ({ findingId: p.findingId, service: serviceFor(p.topic), why: p.text.split(/(?<=\.)\s/)[0]! }));
-  const headline = [...new Set(opportunities.map((o) => o.service))].join(' + ') || 'Sin oportunidades confirmadas';
-  return { has, missing, unverified, opportunities, headline };
+  const report = analyzeOpportunities(a, rubro);
+  const opportunities = report.opportunities.slice(0, 5).map((o) => ({
+    findingId: o.id, title: o.title, area: o.area, observation: o.observation.charAt(0).toUpperCase() + o.observation.slice(1) + '.',
+    why: o.consequence, source: o.source, evidence: o.evidence, confidence: o.confidence,
+  }));
+  const headline = opportunities.slice(0, 2).map((o) => o.title).join(' + ') || 'Sin oportunidades confirmadas';
+  return { has, missing, unverified, strengths: report.strengths.map((s) => s.label), opportunities, headline };
 }

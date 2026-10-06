@@ -1,25 +1,23 @@
 import { api } from './api.js';
 import { $, esc, icon, modal, setStatuses, toast } from './ui.js';
 import * as dashboard from './views/dashboard.js';
-import * as prospects from './views/prospects.js';
 import * as prospect from './views/prospect.js';
-import * as pipeline from './views/pipeline.js';
 import * as audits from './views/audits.js';
 import * as metrics from './views/metrics.js';
 import * as settings from './views/settings.js';
 import * as generator from './views/generator.js';
 import * as prospecting from './views/prospecting.js';
+import * as prospectsTable from './views/prospects.js';
 import * as rapid from './views/rapid.js';
 import { renderLogin, renderSetup } from './views/auth.js';
 
 /** Secciones del menú. `roles` limita quién las ve (sin roles = todos). */
 const NAV = [
   { path: '/', label: 'Dashboard', icon: 'dashboard', view: dashboard },
-  { path: '/prospeccion', label: 'Prospección', icon: 'target', view: prospecting },
-  { path: '/prospectos', label: 'Prospectos', vendedorLabel: 'Mis prospectos', icon: 'users', view: prospects },
+  // PROSPECTOS: el centro de trabajo (buscar, filtrar, analizar, contactar y seguir).
+  { path: '/prospectos', label: 'Prospectos', vendedorLabel: 'Mis prospectos', icon: 'users', view: prospecting },
   // Fuera del menú: la Prospección ya busca y analiza sola. Se entra desde Prospección (reintentar análisis fallidos).
   { path: '/generador', label: 'Generador', icon: 'zap', view: generator, hidden: true },
-  { path: '/pipeline', label: 'Pipeline', icon: 'kanban', view: pipeline },
   { path: '/auditorias', label: 'Auditorías', icon: 'audit', view: audits, roles: ['admin'] },
   { path: '/metricas', label: 'Métricas', icon: 'chart', view: metrics, roles: ['admin'] },
   { path: '/configuracion', label: 'Configuración', icon: 'settings', view: settings, roles: ['admin'] },
@@ -32,7 +30,10 @@ let renderToken = 0;
 const allowed = (item) => !item.roles || item.roles.includes(ctx.user?.role);
 
 function route(pathname) {
-  if (pathname === '/prospeccion/rapida') return { view: rapid, params: {}, nav: '/prospeccion' };
+  if (pathname === '/prospectos/siguiente' || pathname === '/prospeccion/rapida') return { view: rapid, params: {}, nav: '/prospectos' };
+  if (pathname === '/prospectos/tabla') return { view: prospectsTable, params: {}, nav: '/prospectos' };
+  // Secciones que se unificaron en Prospectos (Pipeline se eliminó; Prospección es Prospectos).
+  if (pathname === '/prospeccion' || pathname === '/pipeline') return { view: prospecting, params: {}, nav: '/prospectos', redirectTo: '/prospectos' };
   const m = pathname.match(/^\/prospectos\/([^/]+)$/);
   if (m) return { view: prospect, params: { id: decodeURIComponent(m[1]) }, nav: '/prospectos' };
   const item = NAV.find((n) => n.path === pathname);
@@ -45,6 +46,7 @@ async function render() {
   const token = ++renderToken;
   const r = route(location.pathname);
   if (r.redirect) history.replaceState({}, '', '/');
+  if (r.redirectTo) history.replaceState({}, '', r.redirectTo);
   cleanup?.();
   cleanup = null;
   for (const a of document.querySelectorAll('#nav a')) a.classList.toggle('active', a.getAttribute('href') === r.nav);
@@ -71,7 +73,7 @@ function refreshNav() {
   $('#nav').innerHTML = NAV.filter((n) => allowed(n) && !n.hidden).map(
     (n) => `<a href="${n.path}" data-link>${icon(n.icon)}<span>${ctx.isAdmin ? n.label : n.vendedorLabel ?? n.label}</span></a>`,
   ).join('');
-  const current = route(location.pathname).nav === '/generador' ? '/prospeccion' : route(location.pathname).nav;
+  const current = route(location.pathname).nav === '/generador' ? '/prospectos' : route(location.pathname).nav;
   for (const a of document.querySelectorAll('#nav a')) a.classList.toggle('active', a.getAttribute('href') === current);
   const u = ctx.user;
   const initials = u.name.split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
@@ -220,7 +222,7 @@ async function startApp(user) {
   ctx.isAdmin = user.role === 'admin';
   try {
     ctx.meta = await api.meta();
-    setStatuses(ctx.meta.statuses);
+    setStatuses(ctx.meta.statuses, ctx.meta.quickStatuses);
   } catch (err) {
     if (err.status === 401) return showAuth();
     $('#auth').innerHTML = `<div class="auth-card"><h1>La herramienta no responde</h1><p class="muted">${esc(err.message)}</p></div>`;
