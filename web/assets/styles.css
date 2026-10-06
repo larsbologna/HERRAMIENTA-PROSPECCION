@@ -644,4 +644,4 @@ tr.svc-off td { opacity: .55; }
 .contact-note { font-size: 12px; margin: 8px 0 0; }
 .dq-unverified li, .contact-note, .ch-main { overflow-wrap: anywhere; }
 .select-sm { width: auto; height: 30px; padding-top: 0; padding-bottom: 0; font-size: 13px; border-radius: 8px; }
-.wa-fallback { margin: 10px 0 0; }
+.wa-fallback:not([hidden]) { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0 0; font-size: 13px; }

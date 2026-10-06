@@ -138,37 +138,94 @@ for (const [w, h, expectSide] of [[1920, 1080, true], [1366, 768, true], [1280, 
   });
 }
 
-test('WhatsApp en la computadora: abre la app y, si no responde, ofrece el chat en WhatsApp Web', { timeout: 60_000 }, async () => {
-  const ctx = await browser.newContext({ viewport: { width: 1366, height: 768 } });
-  const page = await ctx.newPage();
-  const errors: string[] = [];
-  page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto(`${base}/`);
-  await page.fill('input[name=username]', 'ivan');
-  await page.fill('input[name=password]', 'secreta123');
-  await page.click('#login button[type=submit]');
-  await page.waitForSelector('#nav a');
-  await page.goto(`${base}/prospectos/${prospectId}`);
-  await page.waitForSelector('#wa');
+/**
+ * "Abrir WhatsApp" con WhatsApp Desktop en distintos estados. La app de escritorio no existe en este
+ * entorno (Linux, sin pantalla): lo que se prueba es el lado de la herramienta, que tiene que ser
+ * IDÉNTICO en todos los casos: un enlace normal a https://wa.me/… abierto por el navegador, sin
+ * whatsapp://, sin cambiar la página actual y sin depender del foco ni de si la app está abierta.
+ * Cada caso simula lo que el navegador "ve" cuando Windows le pasa el enlace a WhatsApp Desktop.
+ */
+const WA_STATES: Array<[string, string]> = [
+  ['A. WhatsApp Desktop cerrado', 'none'],
+  ['B. WhatsApp Desktop abierto y funcionando', 'app-takes-focus'],
+  ['C. WhatsApp Desktop minimizado', 'app-restored-browser-hidden'],
+  ['D. WhatsApp Desktop abierto en segundo plano', 'browser-keeps-focus'],
+];
+for (const [name, state] of WA_STATES) {
+  test(`${name}: "Abrir WhatsApp" abre el chat oficial wa.me con el mensaje`, { timeout: 60_000 }, async () => {
+    const ctx = await browser.newContext({ viewport: { width: 1366, height: 768 } });
+    // Sin internet: wa.me y WhatsApp Web se responden con páginas simuladas.
+    const opened: string[] = [];
+    await ctx.route(/^https:\/\/(wa\.me|web\.whatsapp\.com)\//, (route) => {
+      opened.push(route.request().url());
+      return route.fulfill({ status: 200, contentType: 'text/html', body: '<title>WhatsApp</title>Click to Chat' });
+    });
+    const page = await ctx.newPage();
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(`${base}/`);
+    await page.fill('input[name=username]', 'ivan');
+    await page.fill('input[name=password]', 'secreta123');
+    await page.click('#login button[type=submit]');
+    await page.waitForSelector('#nav a');
+    await page.goto(`${base}/prospectos/${prospectId}`);
+    await page.waitForSelector('#wa');
+    const toolUrl = page.url();
+    const mainNavigations: string[] = [];
+    page.on('framenavigated', (f) => { if (f === page.mainFrame()) mainNavigations.push(f.url()); });
 
-  // Por defecto: app de WhatsApp. Este Chromium no tiene la app: el enlace whatsapp:// no hace nada.
-  assert.equal(await page.inputValue('#wa-mode'), 'app');
-  await page.click('#wa');
-  const fallback = page.locator('#wa-fallback a.btn-wa');
-  await fallback.waitFor({ timeout: 6000 });
-  const href = (await fallback.getAttribute('href'))!;
-  const u = new URL(href);
-  assert.equal(u.origin + u.pathname, 'https://web.whatsapp.com/send');
-  assert.equal(u.searchParams.get('phone'), '5493415550000', 'chat del negocio');
-  assert.equal(u.searchParams.get('text'), await page.inputValue('#msg'), 'con el mensaje exacto');
+    const message = await page.inputValue('#msg');
+    const expected = `https://wa.me/5493415550000?text=${encodeURIComponent(message)}`;
+    assert.equal(await page.getAttribute('#wa', 'href'), expected, 'enlace oficial Click to Chat con el número y el mensaje');
+    assert.equal(await page.getAttribute('#wa', 'target'), '_blank');
 
-  // WhatsApp Web elegido: el botón va directo al chat, en la misma pestaña "whatsapp".
-  await page.selectOption('#wa-mode', 'web');
-  assert.match((await page.getAttribute('#wa', 'href'))!, /^https:\/\/web\.whatsapp\.com\/send\?phone=5493415550000&text=/);
-  assert.equal(await page.getAttribute('#wa', 'target'), 'whatsapp');
-  await page.reload();
-  await page.waitForSelector('#wa-mode');
-  assert.equal(await page.inputValue('#wa-mode'), 'web', 'la elección queda recordada');
-  assert.deepEqual(errors, []);
-  await ctx.close();
+    if (state === 'browser-keeps-focus') await page.bringToFront();
+    const [popup] = await Promise.all([page.waitForEvent('popup'), page.click('#wa')]);
+    // Lo que pasa en el navegador cuando Windows le entrega el enlace a WhatsApp Desktop.
+    if (state === 'app-takes-focus' || state === 'app-restored-browser-hidden') {
+      // (como texto: el transpilador de los tests no debe tocar el código que corre en la página)
+      await page.evaluate(`(() => {
+        window.dispatchEvent(new Event('blur'));
+        if (${state === 'app-restored-browser-hidden'}) {
+          Object.defineProperty(document, 'hidden', { configurable: true, get() { return true; } });
+          Object.defineProperty(document, 'visibilityState', { configurable: true, get() { return 'hidden'; } });
+          document.dispatchEvent(new Event('visibilitychange'));
+        }
+      })()`);
+    }
+    await popup.waitForLoadState();
+    await page.waitForTimeout(3000); // más que cualquier temporizador: no tiene que pasar nada más
+
+    assert.equal(popup.url(), expected, 'se abrió exactamente el enlace wa.me');
+    assert.deepEqual(opened, [expected], 'una sola apertura, sin whatsapp:// ni reintentos');
+    assert.equal(page.url(), toolUrl, 'la herramienta no navega a otro lado');
+    assert.deepEqual(mainNavigations, []);
+    // Respaldo siempre disponible después del clic, sin depender del foco.
+    assert.ok(await page.isVisible('#wa-fallback #wa-web'));
+    const web = new URL((await page.getAttribute('#wa-web', 'href'))!);
+    assert.equal(web.origin + web.pathname, 'https://web.whatsapp.com/send');
+    assert.equal(web.searchParams.get('phone'), '5493415550000');
+    assert.equal(web.searchParams.get('text'), message);
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  });
+}
+
+test('"Abrir WhatsApp" no usa whatsapp://, window.location, window.open ni maneja el proceso de WhatsApp', async () => {
+  const { readdirSync, readFileSync } = await import('node:fs');
+  const path = await import('node:path');
+  const root = path.resolve(import.meta.dirname, '..');
+  const walk = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+    e.isDirectory() ? walk(path.join(dir, e.name)) : /\.(js|ts|html|bat|command)$/.test(e.name) ? [path.join(dir, e.name)] : []);
+  const strip = (code: string) => code.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '').replace(/\s\/\/.*$/gm, '');
+  const front = walk(path.join(root, 'web'));
+  for (const f of front) {
+    const code = strip(readFileSync(f, 'utf8'));
+    assert.doesNotMatch(code, /whatsapp:\/\//i, `${f}: protocolo whatsapp://`);
+    assert.doesNotMatch(code, /window\.open\s*\(|window\.location|location\.(href|assign|replace)\s*[=(]/, `${f}: apertura manual`);
+  }
+  for (const f of [...front, ...walk(path.join(root, 'src')), ...['iniciar.bat', 'iniciar.command'].map((x) => path.join(root, x))].filter((x) => { try { return !!readFileSync(x); } catch { return false; } })) {
+    const code = strip(readFileSync(f, 'utf8'));
+    assert.doesNotMatch(code, /WhatsApp\.exe|taskkill|Stop-Process|openExternal|electron|tauri|ms-windows-store/i, `${f}: manejo del proceso de WhatsApp`);
+  }
 });

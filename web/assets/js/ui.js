@@ -146,10 +146,12 @@ export async function copyText(text) {
 }
 
 /**
- * Número para WhatsApp (solo dígitos, con código de país) a partir de un teléfono como lo muestra Google.
- * Argentina por defecto: "0341 15-555-0000" → 5493415550000 (celular: 54 + 9, sin 0 ni 15);
- * "0341 456-7890" → 543414567890 (fijo: WhatsApp Business también funciona con fijos).
- * Devuelve '' si no se puede armar un número válido.
+ * Número para WhatsApp "Click to Chat" (solo dígitos, con código de país, sin "+") a partir del teléfono
+ * como lo muestra Google o lo escribe el negocio. Argentina por defecto:
+ *   "0341 15-555-0000" / "(0341) 155-550000" / "+54 9 341 555-0000" → 5493415550000 (celular: 54 + 9, sin 0 ni 15)
+ *   "0341 456-7890" / "+54 341 456-7890" → 543414567890 (fijo: sirve si usan WhatsApp Business)
+ * Quita espacios, guiones, paréntesis y puntos; no duplica el 54. Si el número está incompleto
+ * (por ejemplo, sin característica) devuelve '' en lugar de inventar uno.
  */
 export function waPhone(phone) {
   const raw = String(phone || '').trim();
@@ -160,18 +162,27 @@ export function waPhone(phone) {
     const m = rest.match(/^(\d{2,4})15(\d{6,8})$/);
     return m && m[1].length + m[2].length === 10 ? `549${m[1]}${m[2]}` : '';
   };
+  /** Número argentino sin el 54 inicial: "9 341 5550000", "0341 15 5550000", "341 4567890"… */
+  const argentina = (rest) => {
+    rest = rest.replace(/^0/, '');
+    if (rest.startsWith('9')) {
+      const r = rest.slice(1).replace(/^0/, '');
+      if (r.length === 10) return mobile15(r) || `549${r}`;
+      return mobile15(r);
+    }
+    return mobile15(rest) || (rest.length === 10 ? `54${rest}` : '');
+  };
   if (intl) {
     if (!d.startsWith('54')) return d.length >= 8 && d.length <= 15 ? d : '';
-    const rest = d.slice(2).replace(/^0/, '');
-    if (rest.startsWith('9') && rest.length === 11) return `54${rest}`;
-    return mobile15(rest) || (rest.length === 10 ? `54${rest}` : '');
+    let rest = d.slice(2);
+    if (rest.startsWith('54') && rest.length >= 12) rest = rest.slice(2); // "+54 54 9 …": código duplicado
+    return argentina(rest);
   }
-  if (d.startsWith('54') && d.length >= 12 && d.length <= 13) return d.slice(2).startsWith('9') ? d : mobile15(d.slice(2)) || d;
-  const rest = d.replace(/^0/, '');
-  return mobile15(rest) || (rest.length === 10 ? `54${rest}` : '');
+  if (d.startsWith('54') && d.length >= 12 && d.length <= 13) return argentina(d.slice(2));
+  return argentina(d);
 }
 
-/** ¿Celular o tablet? (ahí wa.me abre la app directo en el chat). */
+/** ¿Celular o tablet? */
 export const isTouchDevice = () => {
   try {
     return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || (matchMedia('(pointer: coarse)').matches && !matchMedia('(pointer: fine)').matches);
@@ -181,23 +192,24 @@ export const isTouchDevice = () => {
 };
 
 /**
- * Enlace que abre el CHAT con el negocio y el mensaje cargado (no lo envía).
- * - Celular: wa.me → la app abre directo en el chat.
- * - Computadora: "web" → WhatsApp Web directo en el chat (sin la página intermedia de wa.me);
- *   "app" → la app de WhatsApp de escritorio.
- * Sin número abre WhatsApp para elegir el contacto.
+ * Enlace oficial de WhatsApp "Click to Chat": https://wa.me/<número>?text=<mensaje codificado>.
+ * Lo abre el navegador como cualquier enlace; WhatsApp (app de escritorio, app del celular o WhatsApp Web)
+ * decide dónde mostrar el chat. Sin número abre WhatsApp para elegir el contacto. No envía nada.
  */
-export function waChatUrl(number, text, mode = isTouchDevice() ? 'mobile' : 'web') {
+export function waMeUrl(number, text) {
   const n = String(number || '').replace(/\D/g, '');
-  const t = encodeURIComponent(text || '');
-  if (mode === 'app') return `whatsapp://send?${n ? `phone=${n}&` : ''}text=${t}`;
-  if (mode === 'web') return `https://web.whatsapp.com/send?${n ? `phone=${n}&` : ''}text=${t}`;
-  return `https://wa.me/${n}?text=${t}`;
+  return `https://wa.me/${n}?text=${encodeURIComponent(text || '')}`;
 }
 
-/** Compatibilidad: enlace wa.me a partir de un teléfono (ahora también entiende teléfonos argentinos sin +54). */
+/** Respaldo: el mismo chat en WhatsApp Web (navegador). */
+export function waWebUrl(number, text) {
+  const n = String(number || '').replace(/\D/g, '');
+  return `https://web.whatsapp.com/send?${n ? `phone=${n}&` : ''}text=${encodeURIComponent(text || '')}`;
+}
+
+/** Compatibilidad: enlace wa.me a partir de un teléfono. */
 export function waLink(phone, text) {
-  return waChatUrl(waPhone(phone), text, 'mobile');
+  return waMeUrl(waPhone(phone), text);
 }
 
 export function emptyState(iconName, title, text, actionHtml = '') {

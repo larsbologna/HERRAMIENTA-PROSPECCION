@@ -293,23 +293,51 @@ test('los tests no tocan data/prospeccion.db ni precios.json', () => {
   assert.ok(true);
 });
 
-test('botón de WhatsApp: abre directo el chat del negocio, también con teléfonos argentinos sin +54', async () => {
-  const { waPhone, waChatUrl, waLink: uiWaLink } = (await import('../web/assets/js/ui.js')) as {
-    waPhone: (p: string) => string; waChatUrl: (n: string, t: string, m?: string) => string; waLink: (p: string, t: string) => string;
-  };
+type UiWa = { waPhone: (p: string) => string; waMeUrl: (n: string, t: string) => string; waWebUrl: (n: string, t: string) => string; waLink: (p: string, t: string) => string };
+const uiWa = async () => (await import('../web/assets/js/ui.js')) as UiWa;
+
+test('E. número argentino válido → formato internacional para wa.me', async () => {
+  const { waPhone } = await uiWa();
   assert.equal(waPhone('0341 15-555-0000'), '5493415550000', 'celular: 54 + 9, sin 0 ni 15');
   assert.equal(waPhone('011 15 2345-6789'), '5491123456789');
   assert.equal(waPhone('+54 9 341 555-0000'), '5493415550000');
+  assert.equal(waPhone('5493415550000'), '5493415550000', 'ya internacional: queda igual');
   assert.equal(waPhone('0341 456-7890'), '543414567890', 'fijo (WhatsApp Business)');
   assert.equal(waPhone('+54 341 456-7890'), '543414567890');
-  assert.equal(waPhone('+1 415 555 0101'), '14155550101');
-  assert.equal(waPhone('123'), '');
-  const text = 'Hola & chau\n¿sí? 100%';
-  const web = new URL(waChatUrl('5493415550000', text, 'web'));
-  assert.equal(web.origin + web.pathname, 'https://web.whatsapp.com/send', 'en la compu va directo al chat, sin la página intermedia');
+  assert.equal(waPhone('+1 415 555 0101'), '14155550101', 'otro país: se respeta');
+  // No duplicar el código de país.
+  assert.equal(waPhone('+54 54 9 341 555-0000'), '5493415550000');
+  assert.equal(waPhone('0054 9 341 555-0000'), '5493415550000');
+  assert.equal(waPhone('+54 9 341 15 555-0000'), '5493415550000', '9 y 15 a la vez');
+  assert.equal(waPhone('+54 (0341) 15-555-0000'), '5493415550000');
+  // No inventar números.
+  for (const bad of ['', '123', '555-0000', '4567890', 'sin teléfono', '+54 341 456']) assert.equal(waPhone(bad), '', bad);
+});
+
+test('F. número con espacios, guiones, paréntesis y puntos', async () => {
+  const { waPhone } = await uiWa();
+  assert.equal(waPhone('(0341) 15-555-0000'), '5493415550000');
+  assert.equal(waPhone(' (011)  4567.8901 '), '541145678901');
+  assert.equal(waPhone('+54 (9) 11 2345-6789'), '5491123456789');
+  assert.equal(waPhone('0221-15-456-7890'), '5492214567890');
+  assert.equal(waPhone('+54-9-351-123-4567'), '5493511234567');
+});
+
+test('G. mensaje con tildes, ñ, signos, saltos de línea, emojis y caracteres especiales', async () => {
+  const { waMeUrl, waWebUrl, waLink } = await uiWa();
+  const text = 'Hola, ¿cómo andás? Soy Iván 👋\nAñoranza, pingüino & "comillas" 100% #1 / a+b=c?\n\nSaludos 🙌🏽';
+  const url = waMeUrl('5493415550000', text);
+  assert.ok(url.startsWith('https://wa.me/5493415550000?text='), 'enlace oficial Click to Chat');
+  const u = new URL(url);
+  assert.equal(u.searchParams.get('text'), text, 'llega exacto');
+  assert.deepEqual([...u.searchParams.keys()], ['text'], '& = # ? + no rompen el enlace');
+  assert.doesNotMatch(url.split('?text=')[1]!, /[\s&#?+=%](?![0-9A-F]{2})|[^\x21-\x7e]/, 'todo codificado (sin espacios, ñ, emojis ni & sueltos)');
+  assert.match(url, /%0A%0A/, 'saltos de línea conservados');
+  assert.match(url, /%F0%9F%91%8B/, 'emoji en UTF-8');
+  const web = new URL(waWebUrl('5493415550000', text));
+  assert.equal(web.origin + web.pathname, 'https://web.whatsapp.com/send');
   assert.equal(web.searchParams.get('phone'), '5493415550000');
   assert.equal(web.searchParams.get('text'), text);
-  assert.equal(waChatUrl('5493415550000', 'Hola', 'app'), 'whatsapp://send?phone=5493415550000&text=Hola');
-  assert.equal(waChatUrl('5493415550000', 'Hola', 'mobile'), 'https://wa.me/5493415550000?text=Hola');
-  assert.equal(uiWaLink('0341 15-555-0000', 'Hola'), 'https://wa.me/5493415550000?text=Hola', 'antes se abría sin destinatario');
+  assert.equal(waLink('(0341) 15-555-0000', 'Hola'), 'https://wa.me/5493415550000?text=Hola');
+  assert.equal(waMeUrl('', 'Hola'), 'https://wa.me/?text=Hola', 'sin número: WhatsApp pide elegir el contacto');
 });
