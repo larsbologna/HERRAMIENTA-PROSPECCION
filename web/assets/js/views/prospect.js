@@ -1,4 +1,5 @@
 import { api } from '../api.js';
+import { openAddRubro } from './prospecting.js';
 import {
   $, $$, IMP, autoGrow, confirmDialog, modal, copyText, date, dateTime, esc, icon, money, moneyShort, number, scoreClass,
   statusLabel, statusOptions, toast, waMeUrl, waWebUrl, waPhone, WA_TARGET, messageInsightHtml,
@@ -108,6 +109,23 @@ function problemsCard(p) {
     </div>
     ${contradicted.length ? `<div class="dq-unverified"><div class="label">Descartados: el negocio ya lo tiene</div>
       <ul>${contradicted.map((c) => `<li>${esc(c.title)} <span class="faint">· ${esc(c.reason)}</span></li>`).join('')}</ul></div>` : ''}
+  </section>`;
+}
+
+const RUBRO_SOURCE = { google: 'categoría de Google', nombre: 'nombre del negocio', busqueda: 'búsqueda', manual: 'asignado a mano', descripcion: 'descripción', web: 'web', instagram: 'Instagram' };
+
+/** Oportunidades comerciales confirmadas para SU rubro, con fuente, evidencia y confianza. */
+function opportunitiesCard(p) {
+  const op = p.opportunityProfile;
+  if (!op) return '';
+  return `<section class="card" id="oportunidades">
+    <div class="card-head"><h2>Oportunidades</h2><span class="sub">${op.opportunities.length} confirmada${op.opportunities.length === 1 ? '' : 's'} · ${esc(p.rubroLabel ?? 'sin rubro')}</span></div>
+    ${op.strengths.length ? `<p class="muted" style="margin:0 0 10px">Lo que hace bien: <b>${esc(op.strengths.join(', '))}</b>.</p>` : ''}
+    ${op.opportunities.length ? `<ol class="cp-opps">${op.opportunities.map((o) => `<li><b>${esc(o.title)}</b> <span class="faint">· ${esc(o.area)}</span>
+      <div>${esc(o.observation)} ${esc(o.why)}</div>
+      <div class="faint">Fuente: ${esc(o.source)} · Evidencia: ${esc(o.evidence)} · Confianza ${esc(o.confidence)}</div></li>`).join('')}</ol>`
+      : '<p class="muted">No hay oportunidades confirmadas para este rubro: el mensaje no inventa ninguna.</p>'}
+    ${op.has.length ? `<p class="faint" style="margin:8px 0 0">Ya tiene: ${esc(op.has.join(', '))}.${op.unverified.length ? ` Sin verificar: ${esc(op.unverified.join(', '))}.` : ''}</p>` : ''}
   </section>`;
 }
 
@@ -240,6 +258,7 @@ function messagesCard(p) {
       <button class="on" data-msg="primerContacto">Completo</button>
       <button data-msg="primerContactoMedio">Mediano</button>
       <button data-msg="primerContactoCorto">Corto</button>
+      <button data-msg="instagram">Instagram</button>
       <button data-msg="seguimiento">Seguimiento</button>
     </div>
     <textarea class="textarea wa-text" id="msg" aria-label="Mensaje de contacto (editable)"></textarea>
@@ -327,7 +346,8 @@ export async function render(main, { id }, ctx) {
   let p = await api.prospect(id);
   let msgKey = 'primerContacto';
   // "Otra versión": versión pedida y texto generado por tipo de mensaje (se conservan al recargar el perfil).
-  const variants = { primerContacto: 0, primerContactoMedio: 0, primerContactoCorto: 0, seguimiento: 0 };
+  const variants = { primerContacto: 0, primerContactoMedio: 0, primerContactoCorto: 0, instagram: 0, seguimiento: 0 };
+  let rubros = (await api.rubros()).items;
   const generated = {};
   let edited = false;
 
@@ -337,7 +357,13 @@ export async function render(main, { id }, ctx) {
         <div>
           <a class="back" href="/prospectos" data-link>${icon('arrowLeft', 'width="14" height="14"')}${ctx.isAdmin ? 'Prospectos' : 'Mis prospectos'}</a>
           <h1>${esc(p.name)}</h1>
-          <div class="muted">${esc([p.category, p.verticalLabel].filter(Boolean).join(' · '))}</div>
+          <div class="muted">${esc(p.category ?? '')}</div>
+          <div class="rubro-line">
+            <label class="rubro-pick">Rubro
+              <select class="select select-sm" id="rubro"><option value="">Sin rubro</option>${rubros.map((r) => `<option value="${esc(r.key)}" ${r.key === p.rubroKey ? 'selected' : ''}>${esc(r.label)}</option>`).join('')}</select></label>
+            <button class="btn btn-sm" id="add-rubro" type="button">${icon('plus')}Agregar rubro</button>
+            <span class="faint">${p.rubroKey ? `Detectado por ${esc(RUBRO_SOURCE[p.rubroSource] ?? p.rubroSource ?? '—')}${p.rubroConfidence ? ` · confianza ${esc(p.rubroConfidence)}` : ''}` : 'No se pudo detectar con seguridad: elegilo a mano.'}</span>
+          </div>
           <div class="chips">
             <a class="chip" href="${esc(p.mapsUrl)}" target="_blank" rel="noopener">${icon('map')}${esc(p.address ?? 'Ver en Google Maps')}</a>
             ${p.phone ? `<span class="chip">${icon('phone')}${esc(p.phone)}</span>` : ''}
@@ -359,8 +385,8 @@ export async function render(main, { id }, ctx) {
       </div>
       <div class="profile">
         <div>
-          <nav class="subnav"><a href="#resumen">Resumen</a><a href="#problemas">Problemas (${p.problems.length})</a><a href="#servicios">Servicios</a><a href="#canales">Canales</a><a href="#presupuesto">Presupuesto</a><a href="#datos">Confiabilidad</a></nav>
-          <div class="stack">${summaryCard(p)}${channelsCard(p)}${problemsCard(p)}${servicesCard(p)}${budgetCard(p)}${reliabilityCard(p)}</div>
+          <nav class="subnav"><a href="#oportunidades">Oportunidades</a><a href="#resumen">Resumen</a><a href="#problemas">Problemas (${p.problems.length})</a><a href="#servicios">Servicios</a><a href="#canales">Canales</a><a href="#presupuesto">Presupuesto</a><a href="#datos">Confiabilidad</a></nav>
+          <div class="stack">${opportunitiesCard(p)}${summaryCard(p)}${channelsCard(p)}${problemsCard(p)}${servicesCard(p)}${budgetCard(p)}${reliabilityCard(p)}</div>
         </div>
         <aside class="profile-side" aria-label="Seguimiento y contacto">${followupsCard(p)}${valueCard(p)}${messagesCard(p)}${notesCard(p)}${historyCard(p, ctx.meta.activityTypes)}</aside>
       </div>`;
@@ -415,6 +441,19 @@ export async function render(main, { id }, ctx) {
         $(a.getAttribute('href'), main)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       };
     }
+    $('#rubro', main).onchange = async (e) => {
+      try {
+        await flushNotes();
+        p = await api.setRubro(id, e.target.value || null);
+        toast(e.target.value ? 'Rubro asignado: se recalcularon oportunidades, prioridad y mensaje' : 'Rubro quitado');
+        for (const k of Object.keys(generated)) delete generated[k];
+        for (const k of Object.keys(variants)) variants[k] = 0;
+        draw();
+      } catch (err) {
+        toast(err.message, 'err');
+      }
+    };
+    $('#add-rubro', main).onclick = () => openAddRubro(async () => { rubros = (await api.rubros()).items; draw(); });
     $('#status', main).onchange = async (e) => {
       try {
         await flushNotes();
@@ -505,7 +544,7 @@ export async function render(main, { id }, ctx) {
     };
     $('#copy', main).onclick = async () => { await copyText($('#msg', main).value); toast('Mensaje copiado'); };
     $('#sent', main).onclick = async () => {
-      const names = { primerContacto: 'primer contacto (completo)', primerContactoMedio: 'primer contacto (mediano)', primerContactoCorto: 'primer contacto (corto)', seguimiento: 'seguimiento' };
+      const names = { primerContacto: 'primer contacto (completo)', primerContactoMedio: 'primer contacto (mediano)', primerContactoCorto: 'primer contacto (corto)', instagram: 'Instagram', seguimiento: 'seguimiento' };
       try {
         await flushNotes();
         await api.addActivity(id, 'whatsapp', `Mensaje enviado: ${names[msgKey]}\n\n${$('#msg', main).value}`);

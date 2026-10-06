@@ -1,6 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { instagramUsername } from '../channels/links.js';
 import { assessPotential } from '../prospecting/potential.js';
+import { analyzeOpportunities, opportunityTitles } from '../opportunities/engine.js';
+import { channelOf } from '../channels/crossCheck.js';
+import { RubroCatalog, rubroKeyFor, slug, type CustomRubro, type RubroModel } from '../rubros/catalog.js';
 import { POTENTIAL_ORDER } from '../prospecting/sql.js';
 import type { AnalysisResult, AreaScore, Budget, SalesArgument, ServiceRecommendation } from '../domain/types.js';
 import { transaction, type Db } from '../db/database.js';
@@ -10,6 +13,7 @@ import { SERVICE_CATALOG } from '../proposal/services.js';
 import {
   ACTIVITY_TYPES,
   MANUAL_ACTIVITY_TYPES,
+  RESPONDED_STATUSES,
   STATUSES,
   isStatus,
   stageOf,
@@ -33,6 +37,7 @@ const SUMMARY_SELECT = `SELECT p.id, p.name, p.category, p.vertical_id, p.vertic
   p.rating, p.review_count, p.score, p.status, p.max_stage, p.potential_value, p.project_total, p.closed_value,
   p.problems_count, p.high_impact_count, p.analyzed_at, p.created_at, p.last_activity_at,
   p.assigned_user_id, u.name AS assigned_user_name, p.campaign_id, c.label AS campaign_label, p.potential_level, p.potential_reason,
+  p.rubro_key, p.rubro_source, p.rubro_confidence, p.opps_json, p.contact_json,
   (SELECT MIN(f.due_at) FROM followups f WHERE f.prospect_id = p.id AND f.status = 'pendiente') AS next_followup_at
   FROM prospects p LEFT JOIN users u ON u.id = p.assigned_user_id LEFT JOIN campaigns c ON c.id = p.campaign_id`;
 
@@ -99,6 +104,12 @@ function toSummary(r: Row): ProspectSummary {
     campaignLabel: (r.campaign_label as string) ?? null,
     potentialLevel: (r.potential_level as ProspectSummary['potentialLevel']) ?? null,
     potentialReason: (r.potential_reason as string) ?? null,
+    rubroKey: (r.rubro_key as string) ?? null,
+    rubroLabel: null,
+    rubroSource: (r.rubro_source as string) ?? null,
+    rubroConfidence: (r.rubro_confidence as string) ?? null,
+    opportunities: parse(r.opps_json, []),
+    contact: parse(r.contact_json, {}),
   };
 }
 
@@ -173,32 +184,130 @@ export class CrmRepository {
   }
 
   /**
-   * Prospectos guardados antes de la prospección automática: se les calcula una sola vez el potencial
-   * y las claves de Instagram/WhatsApp a partir de su último análisis (sin tocar nada más).
+   * Prospectos guardados antes de esta versión: se les calcula UNA vez rubro (con su fuente y
+   * confianza), oportunidades, prioridad, contactos y claves anti-duplicados a partir de su último
+   * análisis. No se toca nada más (estado, notas, historial y presupuesto quedan igual).
    */
   private backfillProspecting(): void {
     let rows: Row[];
     try {
-      rows = this.db.prepare(`SELECT p.id, (SELECT a.result_json FROM audits a WHERE a.prospect_id = p.id ORDER BY a.created_at DESC, a.rowid DESC LIMIT 1) AS result_json
-        FROM prospects p WHERE p.potential_level IS NULL`).all() as Row[];
+      rows = this.db.prepare(`SELECT p.id, p.rubro_key, p.rubro_source, c.rubro AS campaign_rubro,
+          (SELECT a.result_json FROM audits a WHERE a.prospect_id = p.id ORDER BY a.created_at DESC, a.rowid DESC LIMIT 1) AS result_json
+        FROM prospects p LEFT JOIN campaigns c ON c.id = p.campaign_id WHERE p.opps_json IS NULL OR p.potential_level IS NULL`).all() as Row[];
     } catch {
       return; // base sin la migración (no debería pasar)
     }
     if (!rows.length) return;
-    const upd = this.db.prepare('UPDATE prospects SET potential_level = ?, potential_reason = ?, instagram_key = COALESCE(instagram_key, ?), whatsapp_key = COALESCE(whatsapp_key, ?) WHERE id = ?');
+    const upd = this.db.prepare(`UPDATE prospects SET potential_level = ?, potential_reason = ?, instagram_key = COALESCE(instagram_key, ?), whatsapp_key = COALESCE(whatsapp_key, ?),
+      rubro_key = ?, rubro_source = ?, rubro_confidence = ?, opps_json = ?, contact_json = ? WHERE id = ?`);
     transaction(this.db, () => {
       for (const r of rows) {
         const result = parse<AnalysisResult | null>(r.result_json, null);
         if (!result?.profile || !result.proposal) continue;
         try {
-          const pot = assessPotential(result);
+          const rubro = r.rubro_source === 'manual'
+            ? { key: (r.rubro_key as string) ?? null, source: 'manual', confidence: 'alta' }
+            : this.rubroFor(result, (r.campaign_rubro as string) ?? undefined);
+          const d = this.derive(result, rubro.key);
           const keys = channelKeys(result);
-          upd.run(pot.level, pot.reason, keys.instagram, keys.whatsapp, String(r.id));
+          upd.run(d.potential.level, d.potential.reason, keys.instagram, keys.whatsapp, rubro.key, rubro.source, rubro.confidence, json(d.opps), json(d.contact), String(r.id));
         } catch {
-          /* análisis viejo incompleto: queda sin potencial */
+          /* análisis viejo incompleto: queda como estaba */
         }
       }
     });
+  }
+
+  // ------------------------------------------------------------------ rubros
+
+  private catalogCache: RubroCatalog | undefined;
+
+  /** Rubros de fábrica + los creados por el usuario (guardados en la base). */
+  catalog(): RubroCatalog {
+    this.catalogCache ??= new RubroCatalog(this.customRubros());
+    return this.catalogCache;
+  }
+
+  customRubros(): CustomRubro[] {
+    return (this.db.prepare('SELECT key, label, model, keywords_json FROM rubros ORDER BY label COLLATE NOCASE').all() as Row[])
+      .map((r) => ({ key: String(r.key), label: String(r.label), model: r.model as RubroModel, keywords: parse<string[]>(r.keywords_json, []) }));
+  }
+
+  /**
+   * Crea un rubro personalizado. Si ya existe (aunque esté escrito distinto: "Óptica" = "Ópticas"),
+   * devuelve el existente en lugar de duplicarlo.
+   */
+  createRubro(input: { label?: unknown; model?: unknown; keywords?: unknown }, actorId: string | null = null): { key: string; label: string; created: boolean } {
+    const label = String(input.label ?? '').trim().replace(/\s+/g, ' ');
+    if (label.length < 3 || label.length > 60) throw new ValidationError('Escribí el nombre del rubro (entre 3 y 60 letras).');
+    const model = String(input.model ?? 'consultas');
+    if (!['turnos', 'reservas', 'productos', 'consultas'].includes(model)) throw new ValidationError('Elegí cómo consigue clientes ese rubro (turnos, reservas, productos o consultas).');
+    const keywords = (Array.isArray(input.keywords) ? input.keywords : String(input.keywords ?? '').split(','))
+      .map((k) => String(k).trim()).filter((k) => k.length >= 3).slice(0, 12);
+    // Se compara por raíz ("Vivero" = "Viveros"); la clave guardada es legible ("viveros").
+    const stem = rubroKeyFor(label);
+    const existing = this.catalog().get(slug(label)) ?? this.catalog().all().find((r) => r.key === stem || rubroKeyFor(r.label) === stem);
+    if (existing) return { key: existing.key, label: existing.label, created: false };
+    const key = slug(label);
+    const display = label.charAt(0).toUpperCase() + label.slice(1);
+    this.db.prepare('INSERT INTO rubros (key, label, model, keywords_json, user_id, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(key, display, model, json(keywords), actorId, now());
+    this.catalogCache = undefined;
+    this.logSystem('configuracion', actorId, `Rubro creado: ${display}`);
+    return { key, label: display, created: true };
+  }
+
+  /** Rubros que tienen prospectos (para los filtros), con su cantidad. Un vendedor ve los suyos. */
+  rubroUsage(scopeUserId?: string): Array<{ key: string | null; count: number }> {
+    return (this.db.prepare(`SELECT rubro_key, COUNT(*) AS n FROM prospects ${scopeUserId ? 'WHERE assigned_user_id = ?' : ''} GROUP BY rubro_key`)
+      .all(...(scopeUserId ? [scopeUserId] : [])) as Row[]).map((r) => ({ key: (r.rubro_key as string) ?? null, count: Number(r.n) }));
+  }
+
+  /** Rubro de un negocio: detectado (Google → nombre) o, si no, el de la búsqueda que lo trajo. */
+  private rubroFor(result: AnalysisResult, hint?: string): { key: string | null; source: string | null; confidence: string | null } {
+    const cat = this.catalog();
+    const d = cat.detect({
+      category: result.profile.category, additionalCategories: result.profile.additionalCategories, name: result.profile.name,
+      description: result.profile.description, website: result.profile.website,
+    });
+    if (d && d.confidence !== 'baja') return { key: d.key, source: d.source, confidence: d.confidence };
+    // La búsqueda solo trae negocios cuya categoría o nombre coincide con el rubro pedido.
+    const h = hint ? cat.resolve(hint) : undefined;
+    if (h) return { key: h.key, source: 'busqueda', confidence: 'media' };
+    return { key: null, source: d ? d.source : null, confidence: d ? 'baja' : null };
+  }
+
+  /** Lo que depende del rubro: oportunidades, prioridad y contactos para listar rápido. */
+  private derive(result: AnalysisResult, rubroKey: string | null) {
+    const rubro = this.catalog().profileFor(rubroKey);
+    const report = analyzeOpportunities(result, rubro);
+    const potential = assessPotential(result, rubro, report);
+    const ch = result.channels;
+    const web = channelOf(ch, 'web');
+    const contact = {
+      ...(ch?.whatsappNumber ? { whatsappNumber: ch.whatsappNumber } : {}),
+      ...(ch?.instagramUrl ? { instagramUrl: ch.instagramUrl } : result.profile.socialLinks?.find((l) => /instagram\.com/i.test(l)) ? { instagramUrl: result.profile.socialLinks.find((l) => /instagram\.com/i.test(l)) } : {}),
+      ...(web?.status === 'encontrado' && web.url ? { websiteUrl: web.url } : result.profile.website && !/instagram|facebook|wa\.me|linktr/i.test(result.profile.website) ? { websiteUrl: result.profile.website } : {}),
+    };
+    return { potential, opps: opportunityTitles(report, 3), contact, report };
+  }
+
+  /** Asigna el rubro a mano (queda fijo: un reanálisis no lo cambia). null = sin rubro. */
+  setRubro(id: string, key: string | null, actorId: string | null = null): ProspectDetail {
+    const row = this.db.prepare(`SELECT p.id, (SELECT a.result_json FROM audits a WHERE a.prospect_id = p.id ORDER BY a.created_at DESC, a.rowid DESC LIMIT 1) AS result_json FROM prospects p WHERE p.id = ?`).get(id) as Row | undefined;
+    if (!row) throw new NotFoundError('Prospecto no encontrado.');
+    const profile = key ? this.catalog().get(key) : undefined;
+    if (key && !profile) throw new ValidationError('Ese rubro no existe. Creálo primero con "Agregar rubro".');
+    const result = parse<AnalysisResult | null>(row.result_json, null);
+    const ts = now();
+    transaction(this.db, () => {
+      this.db.prepare(`UPDATE prospects SET rubro_key = ?, rubro_source = 'manual', rubro_confidence = 'alta', updated_at = ? WHERE id = ?`).run(key, ts, id);
+      if (result?.profile && result.proposal) {
+        const d = this.derive(result, key);
+        this.db.prepare('UPDATE prospects SET potential_level = ?, potential_reason = ?, opps_json = ?, contact_json = ? WHERE id = ?').run(d.potential.level, d.potential.reason, json(d.opps), json(d.contact), id);
+      }
+      this.logActivity(id, 'rubro', profile ? `Rubro: ${profile.label} (asignado a mano)` : 'Sin rubro', ts, actorId);
+    });
+    return this.get(id);
   }
 
   /**
@@ -263,20 +372,25 @@ export class CrmRepository {
    */
   saveAnalysis(
     result: AnalysisResult,
-    opts: { source?: 'analisis' | 'importado'; auditId?: string; userId?: string; campaignId?: string } = {},
+    opts: { source?: 'analisis' | 'importado'; auditId?: string; userId?: string; campaignId?: string; rubroHint?: string } = {},
   ): { id: string; created: boolean; assignedUserId: string | null } {
     const p = result.profile;
     if (!p.name) throw new ValidationError('El análisis no tiene nombre de negocio.');
     const prices = this.prices();
     const key = dedupeKey(p.name, p.address, p.phone ?? result.url);
     // Un reanálisis conserva el presupuesto personalizado que se haya armado para el cliente.
-    const prev = this.db.prepare('SELECT budget_override_json FROM prospects WHERE dedupe_key = ?').get(key) as Row | undefined;
+    const prev = this.db.prepare('SELECT budget_override_json, rubro_key, rubro_source FROM prospects WHERE dedupe_key = ?').get(key) as Row | undefined;
     const override = parse<BudgetOverride | null>(prev?.budget_override_json, null);
     const budget: Budget = prices ? buildBudget(result.proposal.services, prices, override) : result.budget;
     const problems = result.proposal.salesArguments;
     const ts = now();
     const analyzedAt = result.analyzedAt || ts;
-    const potential = assessPotential(result);
+    // Rubro: el asignado a mano se respeta; si no, se detecta (Google → nombre) o se usa el de la búsqueda.
+    const rubro = prev?.rubro_source === 'manual'
+      ? { key: (prev.rubro_key as string) ?? null, source: 'manual', confidence: 'alta' }
+      : this.rubroFor(result, opts.rubroHint);
+    const derived = this.derive(result, rubro.key);
+    const potential = derived.potential;
     const keys = channelKeys(result);
     const fields = {
       name: p.name,
@@ -303,6 +417,11 @@ export class CrmRepository {
       potential_reason: potential.reason,
       instagram_key: keys.instagram,
       whatsapp_key: keys.whatsapp,
+      rubro_key: rubro.key,
+      rubro_source: rubro.source,
+      rubro_confidence: rubro.confidence,
+      opps_json: json(derived.opps),
+      contact_json: json(derived.contact),
     };
     const source = opts.source ?? 'analisis';
 
@@ -375,6 +494,7 @@ export class CrmRepository {
     }
     if (filter.status && filter.status !== 'todos') {
       if (filter.status === 'abiertos') where.push(`p.status NOT IN ('cliente', 'perdido')`);
+      else if (filter.status === 'respondieron') where.push(`p.status IN (${RESPONDED_STATUSES.map((x) => `'${x}'`).join(', ')})`);
       else {
         where.push('p.status = ?');
         params.push(filter.status);
@@ -397,8 +517,9 @@ export class CrmRepository {
       where.push('p.campaign_id = ?');
       params.push(filter.campaignId);
     }
-    if (filter.rubro) {
-      where.push('c.rubro_key = ?');
+    if (filter.rubro === 'none') where.push('p.rubro_key IS NULL');
+    else if (filter.rubro) {
+      where.push('p.rubro_key = ?');
       params.push(filter.rubro);
     }
     if (filter.zona) {
@@ -416,8 +537,9 @@ export class CrmRepository {
     }
     const sort = SORTS[filter.sort ?? 'lastActivity'] ?? SORTS.lastActivity;
     const dir = filter.dir === 'asc' ? 'ASC' : 'DESC';
-    const sql = `${SUMMARY_SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY ${sort} ${dir}, p.name COLLATE NOCASE ASC`;
-    return (this.db.prepare(sql).all(...params) as Row[]).map(toSummary);
+    const sql = `${SUMMARY_SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY ${sort} ${dir}, COALESCE(p.review_count, 0) DESC, p.name COLLATE NOCASE ASC`;
+    const cat = this.catalog();
+    return (this.db.prepare(sql).all(...params) as Row[]).map(toSummary).map((x) => ({ ...x, rubroLabel: x.rubroKey ? cat.get(x.rubroKey)?.label ?? x.rubroKey : null }));
   }
 
   get(id: string): ProspectDetail {
@@ -438,8 +560,10 @@ export class CrmRepository {
       const ids = a.serviceIds.filter((sid) => isActiveService(catalog, sid));
       return { ...a, serviceIds: ids, service: ids.length ? join(ids.map((sid) => serviceName(catalog, sid))) : 'A definir (el servicio sugerido fue quitado del catálogo)' };
     });
+    const summary = toSummary(r);
     return {
-      ...toSummary(r),
+      ...summary,
+      rubroLabel: summary.rubroKey ? this.catalog().get(summary.rubroKey)?.label ?? summary.rubroKey : null,
       notes: String(r.notes ?? ''),
       areaScores: parse<AreaScore[]>(r.area_scores_json, []),
       problems,

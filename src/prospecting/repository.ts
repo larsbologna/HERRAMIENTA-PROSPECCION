@@ -147,7 +147,8 @@ export class ProspectingRepository {
     const where = [`p.status = 'sin_contactar'`];
     const args: string[] = [];
     if (f.campaignId) { where.push('p.campaign_id = ?'); args.push(f.campaignId); }
-    if (f.rubro) { where.push('c.rubro_key = ?'); args.push(f.rubro); }
+    if (f.rubro === 'none') where.push('p.rubro_key IS NULL');
+    else if (f.rubro) { where.push('p.rubro_key = ?'); args.push(f.rubro); }
     if (f.zona) { where.push('c.zona_key = ?'); args.push(f.zona); }
     if (f.potential) { where.push('p.potential_level = ?'); args.push(f.potential); }
     if (f.userId) { where.push('p.assigned_user_id = ?'); args.push(f.userId); }

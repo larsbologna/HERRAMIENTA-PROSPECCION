@@ -55,6 +55,22 @@ export function gimnasios(): FakeBusiness[] {
   }));
 }
 
+/** Veterinarias (turnos) con buena reputación y sin WhatsApp ni web. */
+export function veterinarias(): FakeBusiness[] {
+  return Array.from({ length: 4 }, (_, i) => ({
+    name: `Veterinaria Laprida ${i + 1}`, category: 'Veterinario', address: `Laprida ${200 + i}, Quilmes`, phone: `011 15 3${String(100 + i)}-${String(5000 + i)}`,
+    rating: 4.6, reviews: 120 + i * 20,
+  }));
+}
+
+/** Pet shops (productos: nunca turnos ni reservas), con Instagram. */
+export function petShops(): FakeBusiness[] {
+  return Array.from({ length: 3 }, (_, i) => ({
+    name: `Pet Shop Mundo Animal ${i + 1}`, category: 'Tienda de mascotas', address: `Mitre ${700 + i}, Quilmes`, phone: `011 15 2${String(100 + i)}-${String(6000 + i)}`,
+    rating: 4.4, reviews: 60 + i * 10, instagram: `https://www.instagram.com/mundoanimal${i + 1}/`,
+  }));
+}
+
 /** Un Google Maps simulado: por rubro (en minúsculas) → negocios. */
 export class FakeMaps {
   readonly byUrl = new Map<string, FakeBusiness>();

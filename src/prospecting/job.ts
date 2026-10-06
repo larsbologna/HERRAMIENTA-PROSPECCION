@@ -4,7 +4,6 @@ import type { CrmRepository } from '../crm/repository.js';
 import type { GeneratedCandidate, generateProspects as generateFn } from '../generator/generator.js';
 import type { GeneratorRepository } from '../generator/repository.js';
 import type { Campaign, ProspectingRepository } from './repository.js';
-import { assessPotential } from './potential.js';
 import { matchesRubro } from './rubros.js';
 
 /**
@@ -129,7 +128,7 @@ export class ProspectingJobs {
     const result = await generate({ rubro: req.rubro, zona: req.zona, cantidad: req.cantidad }, {
       known: generator.knownKeys(),
       signal,
-      rubroFilter: (c) => matchesRubro(req.rubro, c),
+      rubroFilter: (c) => matchesRubro(req.rubro, c, crm.catalog()),
       onProgress: (p) => {
         job.percent = Math.max(job.percent, Math.min(30, Math.round(p.percent * 0.3)));
         job.message = p.message;
@@ -199,12 +198,12 @@ export class ProspectingJobs {
         continue;
       }
 
-      const savedP = crm.saveAnalysis(analysis, { userId: req.user.id, campaignId: campaign.id });
+      const savedP = crm.saveAnalysis(analysis, { userId: req.user.id, campaignId: campaign.id, rubroHint: req.rubro });
       if (c.genId) {
         generator.linkProspect(c.genId, savedP.id);
         generator.setAnalysisError(c.genId, null);
       }
-      Object.assign(item, { state: 'listo', prospectId: savedP.id, potential: assessPotential(analysis).level });
+      Object.assign(item, { state: 'listo', prospectId: savedP.id, potential: crm.get(savedP.id).potentialLevel });
       job.analyzed++;
     }
 

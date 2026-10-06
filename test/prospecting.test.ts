@@ -16,6 +16,9 @@ import { opportunityProfile } from '../src/prospecting/opportunities.js';
 import { assessPotential } from '../src/prospecting/potential.js';
 import { campaignLabel } from '../src/prospecting/repository.js';
 import { findRubro, matchesRubro } from '../src/prospecting/rubros.js';
+import { DEFAULT_CATALOG } from '../src/rubros/catalog.js';
+
+const BARBERIAS = DEFAULT_CATALOG.profileFor('barberias');
 import { emptyAnalysis } from '../src/scraper/websiteAnalyzer.js';
 import { Client, loggedClient, startApp } from './helpers.js';
 import { barberias, FakeMaps, gimnasios, type FakeBusiness } from './prospectingFixtures.js';
@@ -75,9 +78,9 @@ test('9. Datos no verificados no se convierten en afirmaciones', () => {
     const f = a.audit.findings.find((x) => x.id === id);
     if (f) assert.equal(f.level, 'probable', `${id} queda probable con Instagram bloqueado`);
   }
-  const op = opportunityProfile(a);
-  assert.ok(op.unverified.includes('Reservas') && op.unverified.includes('Página web'), 'se informa como no verificado');
-  assert.ok(!op.opportunities.some((o) => /reservas|Página web/.test(o.service)), 'no se ofrece lo no verificado');
+  const op = opportunityProfile(a, BARBERIAS);
+  assert.ok(op.unverified.includes('Turnos / reservas online') && op.unverified.includes('Página web'), 'se informa como no verificado');
+  assert.ok(!op.opportunities.some((o) => /turnos|Sin página propia|Sin canal/i.test(o.title)), 'no se ofrece lo no verificado');
 });
 
 test('10–13. Detección: Instagram, reservas, web y WhatsApp → no se ofrece lo que ya tiene', () => {
@@ -92,11 +95,13 @@ test('10–13. Detección: Instagram, reservas, web y WhatsApp → no se ofrece 
   assert.equal(channelOf(a.channels, 'web')?.status, 'encontrado'); // 12
   assert.equal(channelOf(a.channels, 'whatsapp')?.status, 'encontrado'); // 13
   assert.equal(a.channels?.whatsappNumber, '5491144445555');
-  const op = opportunityProfile(a);
-  for (const h of ['Instagram', 'Reservas', 'Página web', 'WhatsApp']) assert.ok(op.has.includes(h), h);
-  assert.ok(!op.opportunities.some((o) => /^(Sistema de reservas|Página web|WhatsApp para negocios)$/.test(o.service)), JSON.stringify(op.opportunities));
-  assert.ok(op.opportunities.some((o) => o.service === 'Mejora de la página web'), 'la web que ya tiene se MEJORA, no se vende otra');
-  for (const o of op.opportunities) assert.ok(o.why.length > 20, 'cada oportunidad explica por qué');
+  const op = opportunityProfile(a, BARBERIAS);
+  for (const h of ['Instagram', 'Turnos / reservas online', 'Página web', 'WhatsApp']) assert.ok(op.has.includes(h), h);
+  assert.ok(!op.opportunities.some((o) => /^(Sin turnos online|Sin página propia|Sin canal rápido de consulta)$/.test(o.title)), JSON.stringify(op.opportunities));
+  for (const o of op.opportunities) {
+    assert.ok(o.why.length > 20, 'cada oportunidad explica la consecuencia');
+    assert.ok(o.source && o.evidence && o.confidence, 'con fuente, evidencia y confianza');
+  }
 });
 
 test('14. Mensaje personalizado: datos reales, reconoce lo que ya tiene, no vende lo que tiene', () => {
@@ -104,8 +109,9 @@ test('14. Mensaje personalizado: datos reales, reconoce lo que ya tiene, no vend
   const m = buildMessages({ id: 'p1', name: 'Barbería X', verticalId: a.vertical.id, verticalLabel: a.vertical.label, problems: a.proposal.salesArguments, services: a.proposal.services, analysis: a }, { sellerName: 'Iván' });
   assert.match(m.primerContacto, /Barbería X/);
   assert.match(m.primerContacto, /Soy Iván/);
-  assert.match(m.primerContacto, /ya tienen Instagram y reservas online/i);
-  assert.doesNotMatch(m.primerContacto, /forma de reservar|sistemas de reservas|no tienen Instagram/i);
+  assert.match(m.primerContacto, /más de 180 reseñas en Google y una muy buena puntuación/, 'empieza por lo que hace bien, con datos reales');
+  assert.match(m.primerContacto, /turnos existe, pero está escondido detrás de varios pasos/, 'los turnos existen (Linktree): no los vende de nuevo');
+  assert.doesNotMatch(m.primerContacto, /\breserv|no tienen Instagram/i);
   const otro = buildMessages({ id: 'p2', name: 'Barbería Z', verticalId: a.vertical.id, verticalLabel: a.vertical.label, problems: a.proposal.salesArguments, services: a.proposal.services, analysis: a }, { sellerName: 'Iván' });
   assert.notEqual(otro.primerContacto, m.primerContacto, 'no es un texto genérico');
 });
@@ -113,9 +119,9 @@ test('14. Mensaje personalizado: datos reales, reconoce lo que ya tiene, no vend
 test('15. Potencial comercial: alto / medio / bajo con motivo basado en señales reales', () => {
   const alto = assessPotential(analysisOf(prof({ hours: undefined }), ig()));
   assert.equal(alto.level, 'alto');
-  assert.match(alto.reason, /^Potencial alto porque tiene 183 reseñas/);
+  assert.match(alto.reason, /^Prioridad alta porque tiene 183 reseñas/);
   assert.match(alto.reason, /Instagram encontrado/);
-  assert.match(alto.reason, /No se detectó web propia/);
+  assert.match(alto.reason, /Ya tiene demanda y hay una oportunidad clara/);
   const medio = assessPotential(analysisOf(prof({ reviewCount: 25, hours: undefined, socialLinks: [] })));
   assert.equal(medio.level, 'medio');
   const sinContacto = assessPotential(analysisOf(prof({ phone: undefined })));
@@ -182,13 +188,14 @@ test('19. "Buscar 20 barberías" entrega 20 prospectos YA ANALIZADOS (con potenc
   assert.ok(card.messages.primerContacto.includes(card.name), 'mensaje personalizado listo');
   assert.ok(card.messages.primerContactoMedio && card.messages.primerContactoCorto, 'tres tamaños');
   assert.ok(card.messageInsight.motivo && card.messageInsight.dolor && card.messageInsight.beneficio, 'motivo, dolor y beneficio');
-  assert.equal(card.messageInsight.rubro, 'Barbería');
+  assert.equal(card.messageInsight.rubro, 'Barberías');
+  assert.equal(card.rubroLabel, 'Barberías');
   const otra = (await admin.get(`/api/prospects/${items[0].id}/mensaje?tipo=primerContactoMedio&variante=1`)).body;
   assert.notEqual(otra.texto, card.messages.primerContactoMedio, 'Otra versión cambia el texto');
   assert.equal(otra.mensajes.primerContactoMedio, otra.texto);
   assert.ok(otra.insight.motivo);
   assert.ok(card.opportunities.headline.length > 3, 'oportunidad');
-  assert.ok(card.potentialReason.startsWith('Potencial'), 'motivo del potencial');
+  assert.ok(card.potentialReason.startsWith('Prioridad'), 'motivo de la prioridad');
   assert.ok(card.channels.instagram && card.channels.web && card.channels.whatsapp && card.channels.reservas);
   const sum = (await admin.get('/api/prospeccion')).body.campaigns.find((c: { id: string }) => c.id === barberCampaign).summary;
   assert.deepEqual([sum.found, sum.analyzed, sum.notContacted, sum.contacted], [20, 20, 20, 0]);

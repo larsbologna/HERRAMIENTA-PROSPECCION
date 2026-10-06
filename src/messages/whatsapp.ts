@@ -1,24 +1,29 @@
 import type { ChannelReport } from '../channels/crossCheck.js';
-import type { AuditResult, BusinessProfile, SalesArgument, ServiceRecommendation, WebsiteAnalysis } from '../domain/types.js';
-import { selectPitches } from './pitch.js';
-import { ANGLES, CATEGORY_LABEL, GROUP_LABEL, HIDDEN_COST, painFor, rubroGroup, type SalesCategory } from './sales.js';
+import type { AnalysisResult, AuditResult, BusinessProfile, Finding, SalesArgument, ServiceRecommendation, WebsiteAnalysis } from '../domain/types.js';
+import { analyzeOpportunities, type Opportunity, type OpportunityReport, type Strength } from '../opportunities/engine.js';
+import { DEFAULT_CATALOG, GENERAL_RUBRO, type RubroProfile, type Topic } from '../rubros/catalog.js';
+import { BANNED_PHRASES } from './pitch.js';
 
 /**
- * MENSAJES DE WHATSAPP ORIENTADOS A VENTAS (primer contacto con negocios locales).
+ * MENSAJES DE PRIMER CONTACTO (WhatsApp e Instagram) para negocios locales.
  *
- * Objetivo: que el dueño RESPONDA, no venderle el servicio en el primer mensaje.
- * Estructura: saludo · presentación breve · "estuve viendo el negocio" · UNA oportunidad concreta
- * (lo que vive el cliente y qué hace) · pérdida económica en el lenguaje del rubro · beneficio ·
- * pregunta simple de bajo compromiso.
+ * Objetivo: que el dueño RESPONDA. La pregunta de fondo no es "¿qué le falta?" sino "¿qué hace bien,
+ * dónde puede estar perdiendo clientes y qué podría mejorar?".
  *
- *  - Nunca solo el problema: siempre consecuencia, cómo afecta ventas y clientes, y qué se gana.
- *  - Solo oportunidades CONFIRMADAS en todos los canales; nunca se ofrece lo que el negocio ya tiene.
- *  - Humano, argentino, profesional y respetuoso: sin frases de agencia ni tono de vendedor.
- *  - Completo: 80–150 palabras en 2 párrafos · Mediano: más directo · Corto: 1 párrafo.
+ * Estructura: personalización · observación concreta (algo que hace bien + lo que se ve) ·
+ * consecuencia comercial (prudente: "puede", "podría"; nunca cifras inventadas) · oportunidad · CTA simple.
+ *
+ *  - Solo oportunidades CONFIRMADAS, ordenadas según el rubro (src/opportunities/engine.ts).
+ *  - Vocabulario del rubro: una veterinaria y una barbería hablan de TURNOS, un restaurante de
+ *    RESERVAS y un pet shop de productos y pedidos (nunca de turnos ni reservas).
+ *  - Seis estilos (observación, oportunidad, competencia, reputación, conversión, directo), elegidos
+ *    según lo que se encontró: la variedad es contextual, no al azar.
+ *  - Antes de entregarse, cada mensaje pasa un control de calidad; si no lo pasa, se rearma con otro
+ *    estilo u otra oportunidad.
  */
 
 export interface MessageInput {
-  /** Semilla estable para elegir variantes (id o nombre del prospecto). */
+  /** Semilla estable para elegir frases (id o nombre del prospecto). */
   seed: string;
   name: string;
   verticalId: string;
@@ -30,6 +35,10 @@ export interface MessageInput {
   metrics?: AuditResult['metrics'];
   /** Canales verificados (Maps + web + Instagram). */
   channels?: ChannelReport;
+  /** Hallazgos de la auditoría (si no están, se reconstruyen desde los argumentos). */
+  findings?: Finding[];
+  /** Rubro del prospecto (si no está, se detecta con la categoría y el nombre). */
+  rubro?: RubroProfile;
 }
 
 export interface Seller {
@@ -51,30 +60,42 @@ export function sellerLinkUrl(link: string | undefined): string | undefined {
 }
 
 export interface ProspectMessages {
-  /** Completo: 80–150 palabras, 2 párrafos. */
+  /** WhatsApp completo. */
   primerContacto: string;
-  /** Mediano: la oportunidad principal, directo al punto. */
+  /** WhatsApp mediano. */
   primerContactoMedio: string;
-  /** Corto: un párrafo. */
+  /** WhatsApp corto. */
   primerContactoCorto: string;
+  /** Mensaje directo de Instagram (más corto). */
+  instagram: string;
   seguimiento: string;
 }
 
-/** Oportunidades CONFIRMADAS que usa el primer contacto (la principal primero). */
+/** Oportunidades que usa el mensaje (la principal primero). */
 export type MessageSelection = Array<{ findingId: string; priority: number; text: string }>;
+
+export type MessageStyle = 'observacion' | 'oportunidad' | 'competencia' | 'reputacion' | 'conversion' | 'directo';
+export const STYLE_LABEL: Record<MessageStyle, string> = {
+  observacion: 'Observación', oportunidad: 'Oportunidad', competencia: 'Competencia', reputacion: 'Reputación', conversion: 'Conversión', directo: 'Directo',
+};
+
+export interface QualityCheck { label: string; ok: boolean }
 
 /** Por qué el mensaje dice lo que dice (se muestra al vendedor, no se envía). */
 export interface MessageInsight {
-  /** Motivo comercial utilizado ("Reservas fuera de horario"). */
+  /** Motivo comercial utilizado. */
   motivo: string;
-  /** La oportunidad detectada, en una frase. */
+  /** Lo que se observó (con su fuente). */
   oportunidad: string;
-  /** Dolor económico detectado, en el lenguaje del rubro. */
+  /** Consecuencia comercial que se comunica. */
   dolor: string;
-  /** Beneficio principal comunicado. */
+  /** Qué podría mejorar si se resuelve. */
   beneficio: string;
-  /** Rubro con el que se adaptó el mensaje. */
   rubro: string;
+  estilo: string;
+  fuente: string;
+  evidencia: string;
+  calidad: QualityCheck[];
 }
 
 function hash(s: string): number {
@@ -83,28 +104,250 @@ function hash(s: string): number {
   return h >>> 0;
 }
 const pick = <T>(arr: readonly T[], seed: string, salt: string): T => arr[hash(seed + salt) % arr.length]!;
-
 const join = (items: string[]) => (items.length > 1 ? `${items.slice(0, -1).join(', ')} y ${items.at(-1)}` : (items[0] ?? ''));
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
 export const wordCount = (s: string) => s.split(/\s+/).filter(Boolean).length;
 
-/** Canales que el negocio YA tiene, confirmados en la verificación cruzada (máx. 3, para el mensaje). */
+/** Canales que el negocio YA tiene, confirmados en la verificación cruzada (para reconocerlo). */
 export function strengths(ch: ChannelReport | undefined): string[] {
   if (!ch) return [];
-  const found = (id: string) => ch.channels.find((c) => c.id === id && c.status === 'encontrado');
+  const has = (id: string) => ch.channels.find((c) => c.id === id && c.status === 'encontrado');
   const out: string[] = [];
-  if (found('instagram')) out.push('Instagram');
-  const web = found('web');
+  if (has('instagram')) out.push('Instagram');
+  const web = has('web');
   if (web && !/no carga/i.test(web.detail ?? '')) out.push('página web');
-  const res = found('reservas');
+  const res = has('reservas');
   if (res?.url) out.push('reservas online');
-  else if (found('whatsapp')) out.push('WhatsApp a mano');
+  else if (has('whatsapp')) out.push('WhatsApp a mano');
   return out.slice(0, 3);
 }
 
+const BENEFIT: Record<Topic, (p: RubroProfile) => string> = {
+  contacto: (p) => `Un canal directo para que quien quiere ${p.vocab.necesidad} lo resuelva en el momento, sin buscar.`,
+  agenda: (p) => `Que puedan ${p.vocab.bookingVerb ?? 'reservar'} solos, a cualquier hora, sin esperar respuesta.`,
+  catalogo: () => 'Un lugar simple donde ver productos y precios, y pedir directo por WhatsApp.',
+  reputacion: () => 'Que la reputación juegue a favor justo cuando los están comparando.',
+  maps: () => 'Una ficha de Google que convenza al que los está comparando con otras opciones.',
+  web: () => 'Un lugar propio con lo necesario para decidir y contactarlos.',
+  instagram: () => 'Que Instagram lleve directo a una consulta, sin pasos de más.',
+};
+
+const CONVERSION_TOPICS: Topic[] = ['contacto', 'agenda', 'catalogo'];
+
+// ------------------------------------------------------------------ control de calidad
+
+const JARGON = /\b(cta|seo|https?|metadat\w*|responsive|linktree|url|algoritmo|link)\b/i;
+const MONEY_CLAIM = /\$\s?\d|\d+\s?%|\b\d+\s+(clientes|ventas|pesos|consultas|turnos|pedidos)\b/i;
+
+/** ¿Este mensaje podría mandarse sin parecer un robot ni prometer de más? */
+export function reviewMessage(raw: string, kind: 'completo' | 'medio' | 'corto' | 'instagram', ctx: { name: string; rubro: RubroProfile; honest?: boolean }): QualityCheck[] {
+  const words = wordCount(raw);
+  // Los enlaces (la web o el Instagram del vendedor) no cuentan como tecnicismos.
+  const text = raw.replace(/https?:\/\/\S+/g, 'enlace');
+  const max = { completo: 150, medio: 100, corto: 70, instagram: 50 }[kind];
+  const min = { completo: 60, medio: 35, corto: 20, instagram: 15 }[kind];
+  const b = ctx.rubro.booking;
+  return [
+    { label: 'Escrito para este negocio (lo nombra)', ok: text.includes(ctx.name) },
+    { label: 'Sin tecnicismos', ok: !JARGON.test(text) },
+    { label: 'Sin frases de spam ni de agencia', ok: !BANNED_PHRASES.some((p) => text.toLowerCase().includes(p)) && !/!!|\b[A-ZÁÉÍÓÚÑ]{5,}\b/.test(text.replace(ctx.name, '')) },
+    { label: 'Sin cifras ni pérdidas inventadas', ok: !MONEY_CLAIM.test(text) },
+    { label: `Vocabulario del rubro (${b === 'turnos' ? 'turnos' : b === 'reservas' ? 'reservas' : 'sin turnos ni reservas'})`, ok: b === 'reservas' ? true : b === 'turnos' ? !/\breserv/i.test(text) : !/\b(turnos?|reserv\w*)\b/i.test(text) },
+    { label: 'Consecuencia comercial prudente ("puede", "podría")', ok: ctx.honest || kind === 'instagram' || /\b(puede|pueden|podría|podrían)\b/i.test(text) },
+    { label: `Largo adecuado (${min}–${max} palabras)`, ok: words >= min && words <= max },
+    { label: 'Termina con un pedido simple', ok: /[?]$|un minuto[^.]*\.$|te muestro[^.]*\.$|sin vueltas\.$/.test(text.trim()) },
+  ];
+}
+const passes = (checks: QualityCheck[]) => checks.every((c) => c.ok);
+
+// ------------------------------------------------------------------ armado
+
+interface Built {
+  messages: ProspectMessages;
+  selected: Opportunity[];
+  style: MessageStyle;
+  lead?: Opportunity;
+  checks: QualityCheck[];
+}
+
+/** Temas que cuentan la misma historia (conseguir el contacto): no se juntan en un mismo mensaje. */
+const FAMILY: Record<Topic, string> = { contacto: 'conv', agenda: 'conv', catalogo: 'conv', reputacion: 'rep', maps: 'maps', web: 'web', instagram: 'ig' };
+/** Segunda oportunidad para el estilo directo: de otra familia, para no repetir la misma idea. */
+function secondFor(opps: Opportunity[], lead: Opportunity | undefined): Opportunity | undefined {
+  return lead ? opps.find((o) => o !== lead && FAMILY[o.topic] !== FAMILY[lead.topic]) : undefined;
+}
+
+/** Estilos posibles para ESTE prospecto, del más adecuado al menos. */
+function stylesFor(report: OpportunityReport): MessageStyle[] {
+  const [lead, second] = report.opportunities;
+  if (!lead) return ['observacion'];
+  const rep = report.strengths.some((s) => s.id === 'reputacion');
+  const visible = rep || report.strengths.some((s) => s.id === 'visibilidad');
+  const conv = CONVERSION_TOPICS.includes(lead.topic);
+  const order: MessageStyle[] = [];
+  if (visible && conv) order.push('observacion', rep ? 'reputacion' : 'conversion', 'conversion');
+  if (secondFor(report.opportunities, lead) && (second?.score ?? 0) >= 6) order.push('directo');
+  if (['agenda', 'catalogo', 'web', 'instagram'].includes(lead.topic)) order.push('competencia');
+  order.push('oportunidad', 'observacion');
+  if (rep) order.push('reputacion');
+  return [...new Set(order)];
+}
+
+function buildOnce(i: MessageInput, seller: Seller, report: OpportunityReport, style: MessageStyle, leadIdx: number, seed: string): Built {
+  const p = i.rubro ?? GENERAL_RUBRO;
+  const me = seller.sellerName?.trim() || '[tu nombre]';
+  const business = seller.sellerBusiness?.trim();
+  const city = seller.sellerCity?.trim();
+  const quien = business ? `, ${business}${city ? ` acá en ${city}` : ''}` : city ? `, de ${city}` : '';
+  const customIntro = seller.sellerIntro?.trim().replace(/([^.!?])$/, '$1.');
+  const link = sellerLinkUrl(seller.sellerLink);
+  const saludo = pick(['Hola, ¿cómo están?', 'Hola, ¿cómo va?', 'Buenas, ¿cómo andan?', 'Buen día, ¿cómo están?'], seed, 's');
+  const presentacion = `Soy ${me}${quien}.${customIntro ? ` ${customIntro}` : ''}`;
+  const name = i.name;
+
+  const opps = report.opportunities;
+  const lead = opps[leadIdx % Math.max(1, opps.length)];
+  const rest = opps.filter((o) => o !== lead);
+  const strength: Strength | undefined = report.strengths.find((s) => s.id === 'reputacion' || s.id === 'visibilidad' || s.id === 'puntuacion') ?? report.strengths[0];
+
+  const ctas = [
+    'Si querés, te mando un video de un minuto y te muestro exactamente qué encontré.',
+    '¿Te mando un video corto mostrándote lo que vi?',
+    '¿Querés que te lo muestre en un audio de un minuto?',
+    'Si te interesa, te lo muestro en un video de un minuto, sin vueltas.',
+  ];
+  const cta = pick(ctas, seed, `z${style}`);
+
+  if (!lead) {
+    // Sin oportunidades confirmadas: no se inventa nada.
+    const hook = strength ? ` ${strength.text}` : '';
+    const primerContacto = [saludo, presentacion, `Estuve viendo ${name} y la verdad lo tienen bien armado.${hook}`, `No te voy a inventar problemas: si en algún momento quieren sumar algo para que más gente que los encuentra termine contactándolos, avisame.${link ? ` Lo que hago: ${link}` : ''}`, '¿Te puedo dejar mi contacto para más adelante?'].join('\n\n');
+    const messages: ProspectMessages = {
+      primerContacto,
+      primerContactoMedio: [saludo, `${presentacion} Estuve viendo ${name} y lo tienen bien armado, así que no te voy a inventar problemas.`, '¿Te puedo dejar mi contacto para más adelante?'].join('\n\n'),
+      primerContactoCorto: `${saludo} ${presentacion} Estuve viendo ${name} y lo tienen bien armado. ¿Te puedo dejar mi contacto para más adelante?`,
+      instagram: `¡Hola! Soy ${me.split(' ')[0]}, trabajo con la presencia online de negocios de la zona. Vi el perfil de ${name} y está muy bien. ¿Les puedo dejar mi contacto para más adelante?`,
+      seguimiento: `${pick(['Hola, ¿cómo va?', 'Buenas, ¿qué tal?'], seed, 'f')} Te había escrito por ${name}. Si en algún momento lo necesitan, avisame; y si no, no pasa nada: no te escribo más.`,
+    };
+    return { messages, selected: [], style: 'observacion', checks: reviewMessage(messages.primerContacto, 'completo', { name, rubro: p, honest: true }) };
+  }
+
+  const obs = (o: Opportunity) => cap(o.observation);
+  const visibleHook = strength && (strength.id === 'reputacion' || strength.id === 'visibilidad');
+  let opening: string;
+  let hook = '';
+  let bridge = pick(['El punto que vi es que', 'Lo que me llamó la atención es que', 'Lo que noté es que'], seed, `b${style}`);
+  switch (style) {
+    case 'reputacion':
+      opening = `Vi que ${name} tiene una reputación bastante buena en Google.`;
+      hook = 'Se nota que hay gente que los elige y confía en el trabajo que hacen.';
+      bridge = 'Justamente por eso me llamó la atención que';
+      break;
+    case 'conversion':
+      opening = `${name} aparece bien en Google, pero encontré un punto donde podrían estar perdiendo consultas.`;
+      hook = visibleHook ? strength!.text : '';
+      bridge = 'El punto es que';
+      break;
+    case 'competencia':
+      opening = `Estuve viendo ${name} y hay algo que hoy muchos ${p.vocab.plural === 'sin rubro' ? 'negocios del rubro' : p.vocab.plural} ya están aprovechando y que todavía no vi en ustedes.`;
+      hook = strength && !visibleHook ? strength.text : '';
+      bridge = 'Puntualmente,';
+      break;
+    case 'directo':
+      opening = `Te escribo porque revisé ${name} y encontré dos cosas concretas que podrían mejorar.`;
+      bridge = 'La primera es que';
+      break;
+    case 'oportunidad':
+      opening = `Estuve viendo ${name} y encontré una oportunidad bastante clara.`;
+      hook = strength?.text ?? '';
+      break;
+    default:
+      opening = `Estuve viendo ${name} y me llamó la atención algo.`;
+      hook = strength?.text ?? '';
+  }
+  const main = `${bridge} ${lowerFirst(lead.observation)}. ${lead.consequence}`;
+  const second = secondFor(opps, lead);
+  let more = '';
+  if (style === 'directo' && second) more = `La segunda es que ${lowerFirst(second.observation)}. ${second.consequence}`;
+  else if (style === 'directo') opening = `Te escribo porque revisé ${name} y encontré algo concreto que podría mejorar.`;
+  else if (rest.length >= 2) more = visibleHook ? 'Además vi un par de oportunidades más para aprovechar mejor la cantidad de gente que ya los encuentra.' : 'Además vi un par de cosas más que podrían ayudar a que más gente termine contactándolos.';
+  else if (rest.length === 1) more = visibleHook ? 'Y vi otra oportunidad para aprovechar mejor a la gente que ya los encuentra.' : 'Y vi otra cosa más que podría ayudar a que más gente termine contactándolos.';
+  const linkLine = link ? `Si querés ver lo que hago: ${link}` : '';
+
+  const assemble = (parts: string[]) => parts.filter(Boolean).join('\n\n');
+  let primerContacto = assemble([saludo, presentacion, opening, hook, main, more, linkLine, cta]);
+  if (wordCount(primerContacto) > 150) primerContacto = assemble([saludo, presentacion, opening, hook, main, linkLine, cta]);
+  if (wordCount(primerContacto) > 150) primerContacto = assemble([saludo, presentacion, opening, main, cta]);
+  const primerContactoMedio = assemble([`${saludo} ${presentacion}`, `${opening} ${cap(lowerFirst(lead.observation))}. ${lead.consequence}`, cta]);
+  const primerContactoCorto = `${saludo} Soy ${me}${quien}. Estuve viendo ${name} y vi que ${lowerFirst(lead.short)}. ${lead.consequence} ${pick(['¿Te mando un video de un minuto con lo que encontré?', '¿Querés que te lo muestre en un audio corto?'], seed, 'q')}`;
+  const instagram = `¡Hola! Soy ${me.split(' ')[0]}, trabajo con la presencia online de negocios de la zona. Vi el perfil de ${name} y noté que ${lowerFirst(lead.short)}. ${pick(['¿Les mando un video de un minuto con lo que encontré?', '¿Les puedo mostrar en un video corto lo que vi?'], seed, 'i')}`;
+  const seguimiento = assemble([
+    `${pick(['Hola, ¿cómo va?', 'Buenas, ¿qué tal?', 'Hola de nuevo, ¿cómo andan?'], seed, 'f')} Te había escrito por ${name}. Lo resumo en una línea: ${lowerFirst(lead.short)}. ${lead.consequence}`,
+    'Si te interesa, te mando el video cuando quieras; y si no es el momento, no pasa nada: avisame y no te escribo más.',
+  ]);
+
+  const messages: ProspectMessages = { primerContacto, primerContactoMedio, primerContactoCorto, instagram, seguimiento };
+  const checks = [
+    ...reviewMessage(primerContacto, 'completo', { name, rubro: p }),
+    ...reviewMessage(primerContactoMedio, 'medio', { name, rubro: p }).map((c) => ({ ...c, label: `Mediano: ${c.label}` })),
+    ...reviewMessage(primerContactoCorto, 'corto', { name, rubro: p }).map((c) => ({ ...c, label: `Corto: ${c.label}` })),
+    ...reviewMessage(instagram, 'instagram', { name, rubro: p }).map((c) => ({ ...c, label: `Instagram: ${c.label}` })),
+  ];
+  const selected = [lead, ...(style === 'directo' && second ? [second] : rest.slice(0, 2))];
+  return { messages, selected, style, lead, checks };
+}
+
+/** Rubro del input: el que trae, o el detectado con la categoría y el nombre (si hay confianza suficiente). */
+function rubroOf(i: MessageInput): RubroProfile {
+  if (i.rubro) return i.rubro;
+  const d = DEFAULT_CATALOG.detect({ category: i.profile?.category, additionalCategories: i.profile?.additionalCategories, name: i.name });
+  return d && d.confidence !== 'baja' ? DEFAULT_CATALOG.profileFor(d.key) : GENERAL_RUBRO;
+}
+
+/** Hallazgos para el motor: los de la auditoría, o reconstruidos desde los argumentos guardados. */
+function findingsOf(i: MessageInput): Finding[] {
+  if (i.findings) return i.findings;
+  const sev = { Alto: 'high', 'Medio-Alto': 'high', Medio: 'medium', Bajo: 'low' } as const;
+  return i.problems
+    .filter((s) => !s.serviceIds || s.serviceIds.length > 0)
+    .map((s) => ({ id: s.findingId, area: s.area, severity: sev[s.impact] ?? 'medium', title: s.problem, detail: s.reason, evidence: s.evidence, source: 'argumento', level: s.level ?? 'confirmado' }));
+}
+
+export function reportFor(i: MessageInput): OpportunityReport {
+  const pseudo = {
+    profile: { ...(i.profile ?? {}), name: i.name },
+    channels: i.channels,
+    website: i.website,
+    audit: { findings: findingsOf(i), metrics: i.metrics },
+  } as unknown as AnalysisResult;
+  return analyzeOpportunities(pseudo, rubroOf(i));
+}
+
+function compose(i: MessageInput, seller: Seller, variant: number): Built {
+  const v = Math.max(0, Math.floor(variant) || 0);
+  const rubro = rubroOf(i);
+  const input = { ...i, rubro };
+  const report = reportFor(input);
+  const styles = stylesFor(report);
+  const n = Math.max(1, Math.min(report.opportunities.length, 3));
+  // Combinaciones (estilo × oportunidad principal) en orden de adecuación; "Otra versión" avanza.
+  const combos: Array<[MessageStyle, number]> = [];
+  for (let lead = 0; lead < n; lead++) for (const s of styles) combos.push([s, lead]);
+  let best: Built | undefined;
+  // Control de calidad: si una combinación no pasa, se prueba la siguiente (se rearma el mensaje).
+  for (let k = 0; k < combos.length; k++) {
+    const [style, lead] = combos[(v + k) % combos.length]!;
+    const built = buildOnce(input, seller, report, style, lead, `${i.seed}#${v}`);
+    if (passes(built.checks)) return built;
+    if (!best || built.checks.filter((c) => c.ok).length > best.checks.filter((c) => c.ok).length) best = built;
+  }
+  return best!;
+}
+
 /**
- * Arma los mensajes a partir de las oportunidades CONFIRMADAS de ESTE negocio.
- * `variant` = 0 es la versión de siempre; cada número mayor arma otra (botón "Otra versión"):
- * cambia el saludo, las frases, la pregunta final y cuál oportunidad abre el mensaje.
+ * Mensajes a partir de las oportunidades CONFIRMADAS de ESTE negocio.
+ * `variant` = 0 es el mejor para el caso; cada número mayor arma otro (botón "Otra versión").
  */
 export function composeMessages(i: MessageInput, seller: Seller, variant = 0): ProspectMessages {
   return compose(i, seller, variant).messages;
@@ -112,128 +355,38 @@ export function composeMessages(i: MessageInput, seller: Seller, variant = 0): P
 
 /** Qué oportunidades usa el mensaje (para mostrarlo en el perfil). */
 export function composeSelection(i: MessageInput, seller: Seller, variant = 0): MessageSelection {
-  return compose(i, seller, variant).selected;
+  return compose(i, seller, variant).selected.map((o, idx) => ({ findingId: o.id, priority: idx + 1, text: o.title }));
 }
 
-/** Motivo comercial, dolor económico y beneficio que comunica el mensaje. */
+/** Motivo comercial, consecuencia, beneficio, estilo y control de calidad del mensaje. */
 export function composeInsight(i: MessageInput, seller: Seller, variant = 0): MessageInsight {
-  return compose(i, seller, variant).insight;
-}
-
-const CTAS = [
-  '¿Te puedo mandar un audio de un minuto mostrándote lo que vi?',
-  '¿Querés que te muestre dónde detecté esta oportunidad?',
-  '¿Te interesa que te explique cómo lo resolvería?',
-];
-const upperFirst = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-
-interface Angle { findingId: string; priority: number; cat: SalesCategory; situation: string; short: string }
-
-function compose(i: MessageInput, seller: Seller, variant: number): { messages: ProspectMessages; selected: MessageSelection; insight: MessageInsight } {
-  const v = Math.max(0, Math.floor(variant) || 0);
-  const seed = v ? `${i.seed}#${v}` : i.seed;
-  const me = seller.sellerName?.trim() || '[tu nombre]';
-  const business = seller.sellerBusiness?.trim();
-  const link = sellerLinkUrl(seller.sellerLink);
-  const customIntro = seller.sellerIntro?.trim().replace(/([^.!?])$/, '$1.');
-  const group = rubroGroup(i);
-
-  // Oportunidades confirmadas, por prioridad comercial, que tengan un ángulo de venta y un servicio que se ofrece.
-  const usable = i.problems.filter((p) => !p.serviceIds || p.serviceIds.length > 0);
-  let angles: Angle[] = selectPitches({ ...i, problems: usable }, 3)
-    .map((p) => {
-      const a = ANGLES[p.findingId];
-      const situation = a?.situation(i);
-      const short = a?.short(i);
-      return a && situation && short ? { findingId: p.findingId, priority: p.priority, cat: a.cat, situation, short } : undefined;
-    })
-    .filter((x): x is Angle => !!x);
-  // Otras versiones: rota cuál oportunidad abre el mensaje.
-  if (v && angles.length > 1) {
-    const shift = v % angles.length;
-    angles = [...angles.slice(shift), ...angles.slice(0, shift)];
+  const b = compose(i, seller, variant);
+  const rubro = rubroOf(i);
+  if (!b.lead) {
+    return { motivo: 'Sin oportunidades confirmadas', oportunidad: 'No se detectaron oportunidades confirmadas: el mensaje no inventa ninguna.', dolor: '—', beneficio: 'Dejar el contacto para más adelante.', rubro: rubro.label, estilo: STYLE_LABEL[b.style], fuente: '—', evidencia: '—', calidad: b.checks };
   }
-
-  const saludo = pick(['Hola, ¿cómo va?', 'Buenas, ¿cómo andan?', 'Hola, ¿qué tal?', 'Buen día, ¿cómo están?'], seed, 's');
-  const city = seller.sellerCity?.trim();
-  const quien = business ? `, ${business}${city ? ` acá en ${city}` : ''}` : city ? `, de ${city}` : '';
-  const presentacion = `Soy ${me}${quien}.${customIntro ? ` ${customIntro}` : ''}`;
-  const cta = pick(CTAS, seed, 'z');
-  const linkLine = link ? ` Si querés ver lo que hago: ${link}.` : '';
-
-  if (!angles.length) {
-    // Sin oportunidades confirmadas: no se inventa ningún problema.
-    const honest = `Estuve viendo ${i.name} y la verdad lo tienen bien armado en Google, así que no te voy a inventar nada.`;
-    const offer = `Trabajo con negocios de la zona para que más gente que los encuentra termine escribiendo o reservando, por si en algún momento les sirve.${linkLine}`;
-    const ask = '¿Te puedo dejar mi contacto para más adelante?';
-    const primerContacto = [`${saludo} ${presentacion} ${honest}`, `${offer} ${ask}`].join('\n\n');
-    return {
-      messages: {
-        primerContacto,
-        primerContactoMedio: primerContacto,
-        primerContactoCorto: `${saludo} Soy ${me}${quien}. ${honest} ${ask}`,
-        seguimiento: `${pick(['Hola, ¿cómo va?', 'Buenas, ¿qué tal?'], seed, 'f')} Te había escrito por ${i.name}. Si en algún momento quieren sumar algo en Google o WhatsApp, avisame; y si no, no pasa nada: no te escribo más.`,
-      },
-      selected: [],
-      insight: { motivo: 'Sin oportunidades confirmadas', oportunidad: 'No se detectaron oportunidades confirmadas: el mensaje no inventa ninguna.', dolor: '—', beneficio: 'Dejar el contacto para más adelante.', rubro: GROUP_LABEL[group] },
-    };
-  }
-
-  const lead = angles[0]!;
-  const pain = painFor(group, lead.cat, lead.findingId);
-  const dolor = pick(pain.dolor, seed, 'd');
-  const beneficio = pick(pain.beneficio, seed, 'b');
-  const ya = strengths(i.channels);
-  const revision = ya.length
-    ? pick([`Estuve viendo ${i.name}: ya tienen ${join(ya)}, que suma un montón, pero me llamó la atención una cosa concreta.`, `Estuve mirando ${i.name}. Ya tienen ${join(ya)}, que está muy bien, aunque encontré una oportunidad concreta.`], seed, 'c')
-    : pick([`Estuve viendo ${i.name} y me llamó la atención una cosa concreta.`, `Estuve mirando cómo aparece ${i.name} en internet y encontré una oportunidad concreta.`], seed, 'c');
-
-  // ---- Completo: 2 párrafos, 80–150 palabras. Suma una segunda oportunidad solo si entra.
-  const p1 = `${saludo} ${presentacion} ${revision} ${lead.situation}`;
-  const second = angles.find((a) => a.cat !== lead.cat);
-  const extra = second ? ` ${pick(['Y no es lo único: también vi que', 'Además, vi que'], seed, 'x')} ${second.short}.` : '';
-  let hidden = '';
-  const build = (withExtra: boolean, withLink: boolean) => [p1, `${dolor}${hidden}${withExtra ? extra : ''} ${beneficio}${withLink ? linkLine : ''} ${cta}`].join('\n\n');
-  // Si queda corto (menos de 80 palabras), se suma lo que no se ve de esa pérdida o el esfuerzo extra que genera.
-  if (wordCount(build(!!extra, true)) < 80) hidden = ` ${HIDDEN_COST[lead.cat]}`;
-  let primerContacto = build(!!extra, true);
-  let usedSecond = !!extra;
-  if (wordCount(primerContacto) > 150) { primerContacto = build(false, true); usedSecond = false; }
-  if (wordCount(primerContacto) > 150) primerContacto = build(false, false);
-
-  // ---- Mediano: la oportunidad principal, directo (2 párrafos cortos).
-  const primerContactoMedio = [
-    `${saludo} Soy ${me}${quien}. Estuve viendo ${i.name} y vi que ${lead.short}.`,
-    `${dolor} ${pain.beneficioShort}. ${cta}`,
-  ].join('\n\n');
-
-  // ---- Corto: un párrafo.
-  const primerContactoCorto = `${saludo} Soy ${me}${quien}. Estuve viendo ${i.name} y vi que ${lead.short}: ${pain.dolorShort}. Tiene una solución simple. ${cta}`;
-
-  // ---- Seguimiento: recordatorio breve con el mismo eje, sin presión.
-  const seguimiento = [
-    `${pick(['Hola, ¿cómo va?', 'Buenas, ¿qué tal?', 'Hola de nuevo, ¿cómo andan?'], seed, 'f')} Te había escrito por ${i.name}. Lo resumo en una línea: ${lead.short}. ${upperFirst(pain.dolorShort)}.`,
-    'Si te interesa, te mando un audio de un minuto con cómo lo resolvería; y si no es el momento, no pasa nada: avisame y no te escribo más.',
-  ].join('\n\n');
-
-  const selected = [lead, ...(usedSecond && second ? [second] : [])];
   return {
-    messages: { primerContacto, primerContactoMedio, primerContactoCorto, seguimiento },
-    selected: selected.map((a) => ({ findingId: a.findingId, priority: a.priority, text: upperFirst(a.short) + '.' })),
-    insight: {
-      motivo: `${CATEGORY_LABEL[lead.cat]}: ${lead.short}`,
-      oportunidad: lead.situation,
-      dolor,
-      beneficio,
-      rubro: GROUP_LABEL[group],
-    },
+    motivo: `${b.lead.area}: ${b.lead.title}`,
+    oportunidad: `${cap(b.lead.observation)}.`,
+    dolor: b.lead.consequence,
+    beneficio: BENEFIT[b.lead.topic](rubro),
+    rubro: rubro.label,
+    estilo: STYLE_LABEL[b.style],
+    fuente: b.lead.source,
+    evidencia: b.lead.evidence,
+    calidad: b.checks,
   };
 }
 
-export const MESSAGE_KEYS = ['primerContacto', 'primerContactoMedio', 'primerContactoCorto', 'seguimiento'] as const;
+export const MESSAGE_KEYS = ['primerContacto', 'primerContactoMedio', 'primerContactoCorto', 'instagram', 'seguimiento'] as const;
 export type MessageKey = (typeof MESSAGE_KEYS)[number];
 
-type StoredProspect = { id: string; name: string; verticalId: string | null; verticalLabel: string | null; problems: SalesArgument[]; services: ServiceRecommendation[]; analysis?: { profile?: BusinessProfile; website?: WebsiteAnalysis; audit?: AuditResult; channels?: ChannelReport } };
+type StoredProspect = {
+  id: string; name: string; verticalId: string | null; verticalLabel: string | null; problems: SalesArgument[]; services: ServiceRecommendation[];
+  analysis?: { profile?: BusinessProfile; website?: WebsiteAnalysis; audit?: AuditResult; channels?: ChannelReport };
+  /** Perfil del rubro asignado al prospecto. */
+  rubroProfile?: RubroProfile;
+};
 const inputOf = (p: StoredProspect): MessageInput => ({
   seed: p.id,
   name: p.name,
@@ -245,38 +398,21 @@ const inputOf = (p: StoredProspect): MessageInput => ({
   website: p.analysis?.website,
   metrics: p.analysis?.audit?.metrics,
   channels: p.analysis?.channels,
+  findings: p.analysis?.audit?.findings,
+  rubro: p.rubroProfile,
 });
 
-/** Problemas que usa el primer contacto de un prospecto guardado. */
+/** Oportunidades que usa el primer contacto de un prospecto guardado. */
 export function buildSelection(p: StoredProspect, seller: Seller, variant = 0): MessageSelection {
   return composeSelection(inputOf(p), seller, variant);
 }
 
-/** Motivo comercial, dolor económico y beneficio del primer contacto de un prospecto guardado. */
+/** Motivo comercial, consecuencia y beneficio del primer contacto de un prospecto guardado. */
 export function buildInsight(p: StoredProspect, seller: Seller, variant = 0): MessageInsight {
   return composeInsight(inputOf(p), seller, variant);
 }
 
 /** Mensajes para un prospecto guardado en el CRM. */
-export function buildMessages(
-  p: { id: string; name: string; verticalId: string | null; verticalLabel: string | null; problems: SalesArgument[]; services: ServiceRecommendation[]; analysis?: { profile?: BusinessProfile; website?: WebsiteAnalysis; audit?: AuditResult; channels?: ChannelReport } },
-  seller: Seller,
-  variant = 0,
-): ProspectMessages {
-  return composeMessages(
-    {
-      seed: p.id,
-      name: p.name,
-      verticalId: p.verticalId ?? 'general',
-      verticalLabel: p.verticalLabel ?? 'su rubro',
-      problems: p.problems,
-      services: p.services,
-      profile: p.analysis?.profile,
-      website: p.analysis?.website,
-      metrics: p.analysis?.audit?.metrics,
-      channels: p.analysis?.channels,
-    },
-    seller,
-    variant,
-  );
+export function buildMessages(p: StoredProspect, seller: Seller, variant = 0): ProspectMessages {
+  return composeMessages(inputOf(p), seller, variant);
 }
