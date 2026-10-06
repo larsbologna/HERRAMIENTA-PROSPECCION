@@ -2,7 +2,9 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import { buildAnalysis, type analyze } from '../src/analyzer.js';
+import { buildAnalysis, type analyze, type reverifyAnalysis } from '../src/analyzer.js';
+import { buildChannelReport } from '../src/channels/crossCheck.js';
+import type { InstagramAnalysis } from '../src/channels/instagram.js';
 import { createApp, type AppDeps } from '../src/api/app.js';
 import { UserRepository } from '../src/auth/users.js';
 import { CrmRepository } from '../src/crm/repository.js';
@@ -27,6 +29,19 @@ export const fakeAnalyze = (async (url, opts) => {
   if (url.includes('falla')) throw new Error('Google Maps tardó demasiado');
   return buildAnalysis(url, profile(decodeURIComponent(url.split('/').pop()!)), undefined, { durationMs: 10 });
 }) as typeof analyze;
+
+/** "Verificar presencia online" falso: el negocio tiene Instagram con Booksy y WhatsApp en el Linktree. */
+export const fakeReverify = (async (prev, opts) => {
+  opts?.onProgress?.({ percent: 60, message: 'Revisando Instagram…' });
+  const profile = { ...prev.profile, socialLinks: ['https://www.instagram.com/negocio.test/'] };
+  const ig: InstagramAnalysis = {
+    url: 'https://www.instagram.com/negocio.test/', username: 'negocio.test', status: 'ok', links: ['https://linktr.ee/negocio.test'],
+    contactAvailable: false, linktree: 'https://linktr.ee/negocio.test', linktreeChecked: true,
+    linktreeLinks: ['https://booksy.com/es-ar/123_negocio', 'https://wa.me/5493415550000'], bookingUrl: 'https://booksy.com/es-ar/123_negocio',
+    bookingProvider: 'Booksy', whatsappLink: 'https://wa.me/5493415550000', whatsappNumber: '5493415550000', manualBooking: false, notes: [], checkedAt: '',
+  };
+  return buildAnalysis(prev.url, profile, prev.website, { durationMs: 1 }, buildChannelReport(profile, prev.website, ig));
+}) as typeof reverifyAnalysis;
 
 /** Generador falso (sin navegador): un "Google Maps" fijo de 3 negocios, con la deduplicación real. */
 export const fakeGenerate = (async (req, deps) => {
@@ -66,7 +81,7 @@ export async function startApp(security: AppDeps['security'] = {}) {
   const repo = new CrmRepository(db, () => prices, (p) => { prices = p; });
   const users = new UserRepository(db);
   const generator = new GeneratorRepository(db);
-  const server = createApp({ repo, users, generator, generate: fakeGenerate, analyze: fakeAnalyze, webDir, log: () => {}, security }).listen(0, '127.0.0.1');
+  const server = createApp({ repo, users, generator, generate: fakeGenerate, analyze: fakeAnalyze, reverify: fakeReverify, webDir, log: () => {}, security }).listen(0, '127.0.0.1');
   await new Promise((r) => server.once('listening', r));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   return { base, repo, users, generator, webDir, close: () => server.close() };

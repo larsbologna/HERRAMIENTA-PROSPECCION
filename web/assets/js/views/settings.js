@@ -26,16 +26,17 @@ export async function render(main, params, ctx) {
 }
 
 // ---------------------------------------------------------------- General
-const DEFAULT_INTRO = (business) => `${business ? `Desde ${business} trabajo` : 'Trabajo'} con negocios de la zona en todo lo que es Google Maps, reseñas y atención por WhatsApp.`;
 const linkUrl = (l) => (!l ? '' : /^@[\w.]+$/.test(l) ? `https://instagram.com/${l.slice(1)}` : /^https?:\/\//i.test(l) ? l : `https://${l}`);
 
 /** Vista previa de cómo arranca el primer mensaje de WhatsApp con estos datos. */
 function introPreview(d, sellerName) {
   const me = sellerName || '[tu nombre]';
-  const intro = (d.sellerIntro || '').trim().replace(/([^.!?])$/, '$1.') || DEFAULT_INTRO((d.sellerBusiness || '').trim());
+  const business = (d.sellerBusiness || '').trim();
+  const intro = (d.sellerIntro || '').trim().replace(/([^.!?])$/, '$1.');
   const city = (d.sellerCity || '').trim();
   const link = linkUrl((d.sellerLink || '').trim());
-  return `Hola, ¿cómo va? ¿Hablo con [negocio]?\n\nSoy ${me}${city ? `, de ${city}` : ''}. ${intro}\n\n…${link ? ` Podés ver lo que hago en ${link}` : ''}`;
+  const quien = business ? `, ${business}${city ? ` acá en ${city}` : ''}` : city ? `, de ${city}` : '';
+  return `Hola, ¿cómo va?\n\nSoy ${me}${quien}.${intro ? ` ${intro}` : ''}\n\nEstuve revisando [negocio] y encontré un par de cosas que me llamaron la atención.\n\n…${link ? ` Si querés ver lo que hago: ${link}` : ''}`;
 }
 
 function infoForm(s) {
@@ -46,7 +47,7 @@ function infoForm(s) {
       <label class="field">Nombre de tu negocio<input class="input" name="sellerBusiness" maxlength="120" value="${esc(s.sellerBusiness)}" placeholder="Ej.: Gestor de Presencia Online"></label>
       <label class="field">Ciudad o zona<input class="input" name="sellerCity" maxlength="120" value="${esc(s.sellerCity)}" placeholder="Ej.: Rosario"></label>
       <label class="field">Presentación (opcional · si la dejás vacía se usa la de abajo)
-        <textarea class="textarea" name="sellerIntro" maxlength="300" rows="2" placeholder="${esc(DEFAULT_INTRO(s.sellerBusiness))}">${esc(s.sellerIntro)}</textarea></label>
+        <textarea class="textarea" name="sellerIntro" maxlength="300" rows="2" placeholder="Opcional. Ej.: Trabajo con negocios de la zona en Google Maps, reseñas y WhatsApp.">${esc(s.sellerIntro)}</textarea></label>
       <label class="field">Web o Instagram para mostrar trabajos (opcional)<input class="input" name="sellerLink" maxlength="200" value="${esc(s.sellerLink)}" placeholder="tunegocio.com o @tunegocio"></label>
       <div><div class="label">Vista previa del mensaje</div><pre class="preview" id="ipreview"></pre></div>
       <div class="error-text" id="ierr"></div>

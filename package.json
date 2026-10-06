@@ -12,7 +12,7 @@
     "diagnose": "tsx src/diagnose.ts",
     "setup": "playwright install chromium",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --import tsx --test test/utils.test.ts test/audit.test.ts test/salesArguments.test.ts test/budget.test.ts test/messages.test.ts test/crm.test.ts test/auth.test.ts test/api.test.ts test/diagnostic.test.ts test/reliability.test.ts test/generator.test.ts test/generatorApi.test.ts test/generatorUi.test.ts test/layout.test.ts test/e2e.test.ts"
+    "test": "node --import tsx --test test/utils.test.ts test/audit.test.ts test/salesArguments.test.ts test/budget.test.ts test/messages.test.ts test/crm.test.ts test/auth.test.ts test/api.test.ts test/diagnostic.test.ts test/reliability.test.ts test/generator.test.ts test/generatorApi.test.ts test/generatorUi.test.ts test/channels.test.ts test/instagram.test.ts test/layout.test.ts test/e2e.test.ts"
   },
   "engines": {
     "node": ">=22.13"

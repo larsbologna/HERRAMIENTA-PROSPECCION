@@ -163,6 +163,48 @@ El **modo diagnóstico** muestra, para cada dato leído de Google Maps, el valor
 
 ---
 
+## Canales encontrados y verificación cruzada
+
+Antes de decir que a un negocio "le falta" algo, la herramienta revisa **todos sus canales**: la ficha de Google Maps, su web, su **Instagram** (bio, link de la bio, contacto del perfil de empresa) y, si el link es un **Linktree** o similar, cada enlace que contiene.
+
+En el perfil del prospecto, la tarjeta **Canales encontrados** muestra Google Maps, página web, Instagram, WhatsApp, Facebook, reservas/turnos, menú online, teléfono y otros links, cada uno con:
+
+| Símbolo | Significa |
+|---|---|
+| ✓ **Encontrado** | Se vio el canal (y dónde: Google Maps, Web, Instagram, Instagram (Linktree)) |
+| ✗ **No encontrado** | Se revisaron **todos** los lugares donde podría estar y no aparece |
+| ? **No verificado** | Algo no se pudo revisar (Instagram pidió iniciar sesión, la web no cargó, el Linktree no abrió…). **No significa que no exista** |
+
+Si los canales se contradicen (Google enlaza una web e Instagram otra, el Instagram enlazado no existe, la web de Instagram no carga) aparece **Requiere revisión**.
+
+**Nunca se recomienda algo que el negocio ya tiene.** Ejemplo: si Instagram enlaza un Linktree con Booksy, se descarta "no tiene reservas online" (queda en *"Descartados: el negocio ya lo tiene"*). Si tiene web pero solo figura en Instagram, en lugar de "no tiene web" se dice que **no está vinculada en Google Maps**.
+
+### Niveles de cada argumento
+
+- **Confirmado:** el dato se verificó en todos los canales. Es lo único que se usa en el mensaje.
+- **Probable:** falta revisar algún canal, o es una deducción (por ejemplo, "WhatsApp sin respuesta automática", que no se ve desde afuera). Se muestra con el motivo, pero no va al mensaje.
+- **Requiere revisión:** la información es contradictoria; se resuelve a mano.
+
+Con Instagram se guardan: `instagram_url`, `instagram_username`, `instagram_contact_available`, `instagram_whatsapp_available`, `instagram_booking_available`, `instagram_website_url`, `instagram_external_link`, `instagram_linktree`, `instagram_booking_provider`, `instagram_analysis_status` (`ok`, `parcial`, `bloqueado`, `no_encontrado`, `error`) e `instagram_notes`. Si no se sabe un dato, queda en `null` (desconocido), nunca en `false`.
+
+### Verificar presencia online
+
+Los prospectos analizados antes de esta versión no tienen canales: se ven igual que siempre y sus argumentos se tratan como antes. El botón **Verificar presencia online** (tarjeta Canales) vuelve a revisar la web e Instagram **sin volver a leer Google Maps**, rearma argumentos y mensaje, y deja la actividad registrada. Conviene usarlo antes de contactar un prospecto viejo.
+
+La revisión de Instagram se puede desactivar con `INSTAGRAM_CHECK=false` en `.env`.
+
+### Mensaje de contacto
+
+El mensaje se arma solo con argumentos **confirmados**, ordenados por prioridad comercial (1 = más importante), con un problema principal y, como mucho, dos más. Cada problema explica la **consecuencia** para el negocio, no el dato técnico. Estructura: saludo, presentación ("Soy Iván Bologna, Gestor de Presencia Online…"), contexto, problemas, servicios relacionados y el pedido de permiso para mandar un audio corto. Entre 120 y 220 palabras, sin frases de agencia ("potenciar", "siguiente nivel", "sin compromiso"…). Si no hay nada confirmado, el mensaje no inventa problemas.
+
+Botones de la tarjeta **Mensaje de contacto**:
+
+- **Contactar por WhatsApp:** aparece cuando hay un WhatsApp confirmado (enlace de WhatsApp en la web, Instagram o Linktree, o el contacto de Instagram). Abre `https://wa.me/NUMERO?text=…` con el mensaje exacto cargado. **No se envía solo**: lo revisás y lo mandás vos. Si no hay número confirmado, "Abrir WhatsApp" usa el teléfono de Google como antes.
+- **Abrir Instagram:** abre el perfil. Instagram no permite abrir un mensaje directo con texto cargado, así que no se inventan enlaces de DM: usá **Copiar mensaje** y pegalo.
+- **Copiar mensaje** y **Registrar envío**.
+
+---
+
 ## Confiabilidad del dato
 
 Cada dato leído de Google Maps guarda **valor obtenido, estado, confianza, fuente y método**. Se ve en el perfil del prospecto (sección **Confiabilidad**) y por terminal con `npm run analizar -- "<url>" --confiabilidad`.
@@ -223,7 +265,8 @@ src/
 ├── auth/                  Contraseñas (scrypt), usuarios, sesiones, límite de intentos
 ├── crm/                   Repositorio SQLite, estados, estadísticas, importación de la V1
 ├── db/                    Conexión node:sqlite y migraciones versionadas
-├── messages/              Mensajes de WhatsApp (primer contacto, corto, seguimiento)
+├── messages/              Mensajes de WhatsApp (primer contacto, corto, seguimiento) y prioridad comercial de cada problema
+├── channels/              Instagram (perfil público + Linktree), enlaces y verificación cruzada de canales
 ├── generator/             Generador de Prospectos: búsqueda en Maps, duplicados, score y persistencia
 ├── analyzer.ts            Análisis completo (Maps → web → auditoría → propuesta → presupuesto)
 ├── scraper/               Playwright: Google Maps y sitio web          ┐
@@ -249,6 +292,7 @@ Todas las rutas requieren sesión salvo las de `/api/auth` (login, estado, alta 
 | GET | `/api/prospects` | Listado (`q`, `status`, `vertical`, `minScore`, `maxScore`, `sort`, `dir`; admin: `assigned=me\|none\|<id>`) |
 | GET / PATCH / DELETE | `/api/prospects/:id` | Detalle con mensajes · estado, notas, valor cerrado, responsable (admin) · borrar (admin) |
 | POST | `/api/prospects/assign` | Asignación masiva (admin) |
+| POST | `/api/prospects/:id/verificar` | Verificar presencia online: revisa web, Instagram y canales y rearma argumentos y mensaje (streaming NDJSON) |
 | PUT | `/api/prospects/:id/presupuesto` | Presupuesto personalizado `{override: {items, discountPct}}` o `{override: null}` |
 | GET / POST / PATCH | `/api/followups`, `/api/prospects/:id/followups`, `/api/followups/:id` | Seguimientos: listar, agendar, marcar hecho o cancelado |
 | POST | `/api/prospects/:id/activities` | Registrar actividad (nota, llamada, WhatsApp, email, reunión, otra) |
@@ -263,7 +307,7 @@ Todas las rutas requieren sesión salvo las de `/api/auth` (login, estado, alta 
 | GET | `/api/export` | Copia de seguridad JSON (admin) |
 
 ```bash
-npm test           # 87 tests: unitarios, presupuesto, CRM, migraciones, autenticación y roles, API, mensajes, diagnóstico, confiabilidad, generador (dedupe, score, persistencia, API e interfaz), layout y e2e con Chromium
+npm test           # 106 tests: unitarios, presupuesto, CRM, migraciones, autenticación y roles, API, mensajes, diagnóstico, confiabilidad, generador (dedupe, score, persistencia, API e interfaz), canales e Instagram simulado, mensajes, layout y e2e con Chromium
 npm run typecheck
 ```
 
@@ -273,3 +317,4 @@ npm run typecheck
 - Leer Google Maps de forma automatizada va contra sus términos de uso; con muchas consultas seguidas Google puede pedir verificación o bloquear temporalmente.
 - La frecuencia de reseñas y la tasa de respuesta se calculan sobre las reseñas más recientes (hasta 40): son orientativas.
 - Dos negocios con el mismo nombre y dirección se consideran el mismo prospecto.
+- Instagram a veces pide iniciar sesión para ver un perfil (sobre todo con muchas consultas seguidas). En ese caso todo lo que dependa de Instagram queda **No verificado** y no se usa en el mensaje.

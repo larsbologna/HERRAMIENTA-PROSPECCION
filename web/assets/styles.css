@@ -615,3 +615,31 @@ tr.svc-off td { opacity: .55; }
   .bo-row { grid-template-columns: auto minmax(0, 1fr); }
   .bo-row .input { grid-column: span 1; }
 }
+
+/* =====================================================================
+   Canales encontrados · niveles de argumentos · contacto directo
+   ===================================================================== */
+.ch-list { display: grid; gap: 6px; }
+.ch-row { display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 10px; align-items: start; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r); background: rgba(248, 248, 248, .02); font-size: 13px; }
+.ch-sym { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; font-weight: 700; font-size: 13px; }
+.ch-ok { background: rgba(93, 214, 44, .14); color: var(--green); }
+.ch-no { background: var(--danger-soft); color: #FF8A8E; }
+.ch-unk { background: var(--warn-soft); color: #FFC766; }
+.ch-main { min-width: 0; }
+.ch-detail { font-size: 12px; color: var(--text-2); margin-top: 2px; overflow-wrap: anywhere; }
+.ch-review { margin: 4px 0 0; padding-left: 18px; font-size: 13px; }
+.lvl { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; font-size: 10px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; vertical-align: middle; }
+.lvl-ok { background: rgba(93, 214, 44, .14); color: var(--green); }
+.lvl-maybe { background: var(--warn-soft); color: #FFC766; }
+.lvl-msg { background: rgba(248, 248, 248, .08); color: var(--text); }
+.problem.is-probable { border-style: dashed; }
+.lvl-note { display: flex; gap: 6px; align-items: flex-start; margin: 4px 0 10px; padding: 8px 10px; border-radius: var(--r); background: var(--warn-soft); color: #FFD68A; font-size: 12.5px; }
+.lvl-note svg { flex: none; margin-top: 2px; }
+.msg-sel { margin: 0 0 12px; padding: 10px 12px; border-radius: var(--r); border: 1px solid var(--line); background: rgba(248, 248, 248, .02); font-size: 12.5px; }
+.msg-sel ol { margin: 4px 0 0; padding-left: 18px; color: var(--text-2); }
+.msg-sel li + li { margin-top: 3px; }
+.contact-row { flex-wrap: wrap; }
+.btn-wa { background: #25D366; border-color: #25D366; color: #08210f; font-weight: 700; }
+.btn-wa:hover { background: #2fe172; color: #08210f; }
+.contact-note { font-size: 12px; margin: 8px 0 0; }
+.dq-unverified li, .contact-note, .ch-main { overflow-wrap: anywhere; }

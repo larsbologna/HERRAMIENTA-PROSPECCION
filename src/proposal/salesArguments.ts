@@ -172,6 +172,15 @@ const ARGUMENTS: Record<string, ArgumentTemplate> = {
     benefit: () => 'Carta siempre accesible desde Google (y desde un QR en mesa), con más clientes que llegan ya decididos.',
   },
 
+  'web-not-in-maps': {
+    problem: () => 'Tienen página web, pero no está vinculada en su ficha de Google Maps.',
+    impact: 'Medio-Alto',
+    reason: (c) =>
+      `La web existe (se encontró en ${c.channels?.channels.find((x) => x.id === 'web')?.sources.join(', ') ?? 'otro canal'}), pero quien encuentra a ${nombre(c)} en Google Maps no tiene el botón "Sitio web": se pierde justo a la persona que ya los estaba buscando.`,
+    services: ['maps-optimization'],
+    benefit: () => 'Que todo el que los encuentra en Google llegue con un toque a la web, donde ya están los servicios y las formas de contacto.',
+  },
+
   // ================= REPUTACIÓN =================
   'rep-very-few-reviews': {
     problem: (c) => `Casi no tiene reseñas (${reviews(c)}).`,
@@ -458,6 +467,7 @@ export function buildSalesArgument(ctx: AuditContext, finding: Finding): SalesAr
       benefit: `Resolverlo con ${SERVICE_CATALOG[services[0]!].pitch}.`,
       evidence: finding.evidence,
       ...withBasis(ctx, finding),
+      ...withLevel(finding),
     };
   }
   return {
@@ -471,7 +481,12 @@ export function buildSalesArgument(ctx: AuditContext, finding: Finding): SalesAr
     benefit: t.benefit(ctx),
     evidence: finding.evidence,
     ...withBasis(ctx, finding),
+    ...withLevel(finding),
   };
+}
+
+function withLevel(f: Finding): { level?: SalesArgument['level']; levelNote?: string } {
+  return { ...(f.level ? { level: f.level } : {}), ...(f.levelNote ? { levelNote: f.levelNote } : {}) };
 }
 
 /** Datos verificados que respaldan el argumento (valor, confianza, fuente y método). */

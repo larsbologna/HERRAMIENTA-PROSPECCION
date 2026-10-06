@@ -1,4 +1,5 @@
 import type { AreaScore, AuditArea, AuditResult, BusinessProfile, Finding, Severity, WebsiteAnalysis } from '../domain/types.js';
+import { channelOf, type ChannelReport } from '../channels/crossCheck.js';
 import { FINDING_BASIS, isVerified } from '../domain/reliability.js';
 import { detectVertical, type Vertical } from '../domain/verticals.js';
 import type { AuditContext, AuditRule } from './context.js';
@@ -35,14 +36,77 @@ const AREA_CAPS: Record<string, number> = {
   'rep-very-few-reviews': 30,
 };
 
-export function buildContext(profile: BusinessProfile, website?: WebsiteAnalysis, vertical?: Vertical): AuditContext {
+export function buildContext(profile: BusinessProfile, website?: WebsiteAnalysis, vertical?: Vertical, channels?: ChannelReport): AuditContext {
   return {
     profile,
     website,
     vertical: vertical ?? detectVertical(profile.category, profile.name),
     metrics: trustedMetrics(profile),
+    ...(channels ? { channels } : {}),
   };
 }
+
+/**
+ * VERIFICACIÓN CRUZADA: no recomendar lo que el negocio YA tiene.
+ * - Si otro canal muestra que lo tiene (p. ej. reservas en el link de Instagram) → se descarta.
+ * - Si no se pudo revisar ese otro canal → queda "probable" (se muestra, no va en el mensaje).
+ * - Si la web existe en Instagram pero no en Google → oportunidad real: "web no vinculada en Maps".
+ */
+function applyChannels(ctx: AuditContext, findings: Finding[]): { kept: Finding[]; contradicted: NonNullable<AuditResult['contradicted']> } {
+  const r = ctx.channels;
+  const contradicted: NonNullable<AuditResult['contradicted']> = [];
+  if (!r) return { kept: findings, contradicted };
+  const ch = (id: Parameters<typeof channelOf>[1]) => channelOf(r, id);
+  const where = (id: Parameters<typeof channelOf>[1]) => ch(id)?.sources.join(', ') ?? '';
+  const kept: Finding[] = [];
+  let webElsewhere: string | undefined;
+  for (const f of findings) {
+    const absence = ABSENCE_CHANNEL[f.id];
+    if (absence) {
+      const c = ch(absence);
+      if (c?.status === 'encontrado') {
+        // Toma turnos por WhatsApp/DM: tiene reservas (manuales). No se dice "no tiene reservas"; queda para revisar.
+        if (absence === 'reservas' && r.manualBooking && !c.url) {
+          kept.push({ ...f, level: 'probable', levelNote: 'Toma turnos por WhatsApp o mensaje (según Instagram): no tiene un sistema online, pero sí recibe reservas.' });
+          continue;
+        }
+        if (absence === 'web') webElsewhere = c.url;
+        contradicted.push({ findingId: f.id, title: f.title, reason: `${c.label}: encontrado en ${where(absence)}${c.url ? ` (${c.url})` : ''}` });
+        continue;
+      }
+      if (c?.status === 'no_verificado') {
+        kept.push({ ...f, level: 'probable', levelNote: `${c.label}: ${c.detail ?? 'no se pudieron revisar todos los canales'}` });
+        continue;
+      }
+    }
+    // Deducción, no dato observado: nunca se afirma en el mensaje.
+    if (f.id === 'wa-no-auto-reply') {
+      kept.push({ ...f, level: 'probable', levelNote: 'Se deduce porque no hay chat ni bot en la web; las respuestas automáticas de WhatsApp no se ven desde afuera.' });
+      continue;
+    }
+    kept.push({ ...f, level: 'confirmado' });
+  }
+  // Solo si se comprobó que esa web carga: no se recomienda vincular una web caída.
+  if (webElsewhere && r.igWebsiteReachable !== false) {
+    kept.push({
+      id: 'web-not-in-maps', area: 'maps', severity: 'medium', source: 'canales', level: 'confirmado',
+      ...(r.igWebsiteReachable === undefined ? { level: 'probable' as const, levelNote: 'No se comprobó si esa web carga.' } : {}),
+      title: 'La web no está vinculada en Google Maps',
+      detail: `Tienen web (${webElsewhere}, enlazada desde ${where('web')}) pero la ficha de Google no la muestra: quien los encuentra en Maps no llega a ella.`,
+      evidence: webElsewhere,
+    });
+  }
+  return { kept, contradicted };
+}
+
+/** Problemas que afirman que FALTA un canal (se contrastan con los demás canales). */
+const ABSENCE_CHANNEL: Record<string, Parameters<typeof channelOf>[1]> = {
+  'web-none': 'web',
+  'web-social-only': 'web',
+  'wa-not-visible': 'whatsapp',
+  'booking-none': 'reservas',
+  'web-no-booking': 'reservas',
+};
 
 /** Métricas derivadas, sin las que se apoyan en datos no verificados. */
 function trustedMetrics(profile: BusinessProfile): AuditResult['metrics'] {
@@ -93,7 +157,9 @@ export function runAudit(ctx: AuditContext, rules: AuditRule[] = DEFAULT_RULES):
 
 /** Recalcula puntuaciones y QR a partir de hallazgos (se reutiliza cuando un agente añade hallazgos). */
 export function finalizeAudit(ctx: AuditContext, findings: Finding[], opportunities: AuditResult['opportunities']): AuditResult {
-  const { kept, unverified } = gateFindings(ctx, dedupe(findings));
+  const gated = gateFindings(ctx, dedupe(findings));
+  const unverified = gated.unverified;
+  const { kept, contradicted } = applyChannels(ctx, gated.kept);
   const sorted = kept.sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
   const scores = scoreAreas(ctx, sorted);
   const overallScore = Math.round(
@@ -102,6 +168,7 @@ export function finalizeAudit(ctx: AuditContext, findings: Finding[], opportunit
   return {
     findings: sorted, opportunities: dedupe(opportunities), scores, overallScore, qr: evaluateQr(ctx), metrics: ctx.metrics,
     ...(ctx.profile.dataQuality ? { unverified } : {}),
+    ...(ctx.channels ? { contradicted } : {}),
   };
 }
 

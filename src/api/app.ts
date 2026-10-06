@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
-import { analyze as defaultAnalyze } from '../analyzer.js';
+import { analyze as defaultAnalyze, reverifyAnalysis as defaultReverify } from '../analyzer.js';
 import { LoginRateLimiter } from '../auth/rateLimit.js';
 import { ROLES, type Role, type User, type UserRepository } from '../auth/users.js';
 import { ROOT_DIR, config } from '../config/index.js';
@@ -10,7 +10,7 @@ import { NotFoundError, endOfToday, type CrmRepository } from '../crm/repository
 import { dashboard, metrics, personalKpis } from '../crm/stats.js';
 import { ACTIVITY_TYPES, MANUAL_ACTIVITY_TYPES, STATUSES, isStatus, type FollowupStatus, type ProspectFilter, type Settings } from '../crm/types.js';
 import { DEFAULT_VERTICAL, VERTICALS } from '../domain/verticals.js';
-import { buildMessages, MESSAGE_KEYS, type MessageKey } from '../messages/whatsapp.js';
+import { buildMessages, buildSelection, MESSAGE_KEYS, type MessageKey } from '../messages/whatsapp.js';
 import { generateProspects as defaultGenerate, MAX_CANTIDAD } from '../generator/generator.js';
 import { GENERATOR_STATUSES, type GeneratorRepository } from '../generator/repository.js';
 import { catalogFrom } from '../proposal/catalog.js';
@@ -33,6 +33,8 @@ export interface AppDeps {
   users: UserRepository;
   /** Función de análisis (se sustituye en tests). */
   analyze?: typeof defaultAnalyze;
+  /** "Verificar presencia online" (se sustituye en tests). */
+  reverify?: typeof defaultReverify;
   /** Carpeta de la interfaz web. */
   webDir?: string;
   /** Registro de actividad en la consola (se silencia en tests). */
@@ -80,6 +82,7 @@ const SECURITY_HEADERS: Record<string, string> = {
 export function createApp(deps: AppDeps): http.Server {
   const { repo, users } = deps;
   const runAnalysis = deps.analyze ?? defaultAnalyze;
+  const runReverify = deps.reverify ?? defaultReverify;
   const webDir = deps.webDir ?? path.join(ROOT_DIR, 'web');
   const log = deps.log ?? ((m: string) => console.log(m));
   const sec = { trustProxy: config.trustProxy, publicUrl: config.publicUrl, cookieSecure: config.cookieSecure, setupToken: config.setupToken, ...deps.security };
@@ -119,7 +122,8 @@ export function createApp(deps: AppDeps): http.Server {
   };
   const detailFor = (u: User, id: string) => {
     const detail = repo.get(id);
-    return { ...detail, messages: buildMessages(detail, sellerFor(u)) };
+    const seller = sellerFor(u);
+    return { ...detail, messages: buildMessages(detail, seller), messageSelection: buildSelection(detail, seller) };
   };
 
   const router = new Router()
@@ -342,6 +346,35 @@ export function createApp(deps: AppDeps): http.Server {
       ensureAccess(user, params.id!);
       return detailFor(user, params.id!);
     })
+    // "Verificar presencia online": vuelve a revisar web e Instagram antes de generar el mensaje.
+    .on('POST', '/api/prospects/:id/verificar', async ({ res, params, user }) => {
+      ensureAccess(user, params.id!);
+      if (busy) throw new HttpError(409, `Ya hay un análisis en curso (${busy.userName}). Esperá a que termine.`);
+      const detail = repo.get(params.id!);
+      if (!detail.analysis?.profile?.name) throw new HttpError(400, 'Este prospecto no tiene un análisis guardado: usá "Reanalizar".');
+      busy = { userName: user.name };
+      res.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no' });
+      const line = (obj: unknown) => {
+        if (!res.writableEnded) res.write(`${JSON.stringify(obj)}\n`);
+      };
+      const heartbeat = setInterval(() => line({ tipo: 'latido' }), 15_000);
+      try {
+        const result = await runReverify({ ...detail.analysis, url: detail.analysis.url || detail.mapsUrl }, {
+          onProgress: (p) => line({ tipo: 'progreso', porcentaje: Math.min(p.percent, 98), mensaje: p.message }),
+        });
+        const saved = repo.saveAnalysis(result, { userId: user.id });
+        repo.addActivity(saved.id, 'otro', 'Presencia online verificada (web, Instagram y canales de contacto)', user.id);
+        line({ tipo: 'progreso', porcentaje: 100, mensaje: 'Canales verificados.' });
+        line({ tipo: 'resultado', prospectId: saved.id, canales: result.channels?.channels.length ?? 0 });
+      } catch (err) {
+        line({ tipo: 'error', mensaje: (err as Error).message });
+      } finally {
+        clearInterval(heartbeat);
+        busy = null;
+        res.end();
+      }
+      return undefined;
+    })
     // Presupuesto personalizado del prospecto: { items: [{id, setup, monthly}], discountPct } o null para volver al automático.
     .on('PUT', '/api/prospects/:id/presupuesto', async ({ req, params, user }) => {
       ensureAccess(user, params.id!);
@@ -363,9 +396,9 @@ export function createApp(deps: AppDeps): http.Server {
       // Si la combinación coincide con la anterior, se prueba la siguiente (hasta 12 intentos).
       for (let v = requested; v < requested + 12; v++) {
         const text = buildMessages(detail, seller, v)[key];
-        if (text !== previous) return { tipo: key, variante: v, texto: text };
+        if (text !== previous) return { tipo: key, variante: v, texto: text, seleccion: buildSelection(detail, seller, v) };
       }
-      return { tipo: key, variante: requested, texto: buildMessages(detail, seller, requested)[key] };
+      return { tipo: key, variante: requested, texto: buildMessages(detail, seller, requested)[key], seleccion: buildSelection(detail, seller, requested) };
     })
     .on('PATCH', '/api/prospects/:id', async ({ req, params, user }) => {
       ensureAccess(user, params.id!);

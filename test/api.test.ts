@@ -85,7 +85,7 @@ test('configuración, meta y exportación', async () => {
   assert.match(exp.headers.get('content-disposition') ?? '', /prospectos-\d{4}-\d{2}-\d{2}\.json/);
   assert.ok(Array.isArray(((await exp.json()) as any).prospects));
   const any = (await admin.get('/api/prospects')).body.items[0];
-  assert.match((await admin.get(`/api/prospects/${any.id}`)).body.messages.primerContacto, /Soy Iván, de Rosario/);
+  assert.match((await admin.get(`/api/prospects/${any.id}`)).body.messages.primerContacto, /Soy Iván, Gestor de Presencia Online acá en Rosario\./);
 });
 
 test('editar precios y datos del negocio desde Configuración: se aplica al instante', async () => {
@@ -117,12 +117,12 @@ test('editar precios y datos del negocio desde Configuración: se aplica al inst
   const info = await admin.put('/api/settings', { sellerBusiness: 'Presencia Total', sellerCity: 'Córdoba', sellerIntro: '', sellerLink: '@presenciatotal' });
   assert.equal(info.status, 200, JSON.stringify(info.body));
   let msg = (await admin.get(`/api/prospects/${target.id}`)).body.messages;
-  assert.match(msg.primerContacto, /Soy Iván, de Córdoba\. Desde Presencia Total trabajo con negocios/);
-  assert.match(msg.primerContacto, /Podés ver lo que hago en https:\/\/instagram\.com\/presenciatotal/);
-  assert.match(msg.primerContactoCorto, /Soy Iván, de Presencia Total\./);
+  assert.match(msg.primerContacto, /Soy Iván, Presencia Total acá en Córdoba\./);
+  assert.match(msg.primerContacto, /Si querés ver lo que hago: https:\/\/instagram\.com\/presenciatotal/);
+  assert.match(msg.primerContactoCorto, /Soy Iván, Presencia Total acá en Córdoba\./);
   await admin.put('/api/settings', { sellerIntro: 'Ayudo a comercios a conseguir más clientes desde Google' });
   msg = (await admin.get(`/api/prospects/${target.id}`)).body.messages;
-  assert.match(msg.primerContacto, /Soy Iván, de Córdoba\. Ayudo a comercios a conseguir más clientes desde Google\./);
+  assert.match(msg.primerContacto, /Soy Iván, Presencia Total acá en Córdoba\. Ayudo a comercios a conseguir más clientes desde Google\./);
   assert.equal((await admin.put('/api/settings', { sellerLink: 'no es un enlace' })).status, 400);
 
   // Queda registrado en la actividad.
