@@ -137,3 +137,38 @@ for (const [w, h, expectSide] of [[1920, 1080, true], [1366, 768, true], [1280, 
     await ctx.close();
   });
 }
+
+test('WhatsApp en la computadora: abre la app y, si no responde, ofrece el chat en WhatsApp Web', { timeout: 60_000 }, async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1366, height: 768 } });
+  const page = await ctx.newPage();
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(`${base}/`);
+  await page.fill('input[name=username]', 'ivan');
+  await page.fill('input[name=password]', 'secreta123');
+  await page.click('#login button[type=submit]');
+  await page.waitForSelector('#nav a');
+  await page.goto(`${base}/prospectos/${prospectId}`);
+  await page.waitForSelector('#wa');
+
+  // Por defecto: app de WhatsApp. Este Chromium no tiene la app: el enlace whatsapp:// no hace nada.
+  assert.equal(await page.inputValue('#wa-mode'), 'app');
+  await page.click('#wa');
+  const fallback = page.locator('#wa-fallback a.btn-wa');
+  await fallback.waitFor({ timeout: 6000 });
+  const href = (await fallback.getAttribute('href'))!;
+  const u = new URL(href);
+  assert.equal(u.origin + u.pathname, 'https://web.whatsapp.com/send');
+  assert.equal(u.searchParams.get('phone'), '5493415550000', 'chat del negocio');
+  assert.equal(u.searchParams.get('text'), await page.inputValue('#msg'), 'con el mensaje exacto');
+
+  // WhatsApp Web elegido: el botón va directo al chat, en la misma pestaña "whatsapp".
+  await page.selectOption('#wa-mode', 'web');
+  assert.match((await page.getAttribute('#wa', 'href'))!, /^https:\/\/web\.whatsapp\.com\/send\?phone=5493415550000&text=/);
+  assert.equal(await page.getAttribute('#wa', 'target'), 'whatsapp');
+  await page.reload();
+  await page.waitForSelector('#wa-mode');
+  assert.equal(await page.inputValue('#wa-mode'), 'web', 'la elección queda recordada');
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
