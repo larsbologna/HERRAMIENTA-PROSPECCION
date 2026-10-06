@@ -191,18 +191,19 @@ test('WhatsApp en Instagram: descarta "no tiene WhatsApp" y deja el número list
 
 // ---------------------------------------------------------------- mensajes
 
-test('mensaje personalizado: estructura, 120–220 palabras, máximo 3 problemas, sin frases prohibidas', () => {
+test('mensaje personalizado: estructura de ventas, 80–150 palabras, máx. 2 párrafos, sin frases prohibidas', () => {
   const a = analysisWith(barberia, ig());
   const m = messages(a);
   const t = m.primerContacto;
   assert.match(t, /^(Hola|Buenas|Buen día)/);
   assert.match(t, /Soy Iván Bologna, Gestor de Presencia Online/);
   assert.match(t, /Barbería 12 Navajas/);
-  assert.match(t, /audio corto/);
+  assert.match(t, /\?$/, 'cierra con una pregunta');
   const n = wordCount(t);
-  assert.ok(n >= 120 && n <= 220, `${n} palabras:\n${t}`);
+  assert.ok(n >= 80 && n <= 150, `${n} palabras:\n${t}`);
+  assert.ok(t.split('\n\n').length <= 2);
   const sel = selection(a);
-  assert.ok(sel.length >= 1 && sel.length <= 3);
+  assert.ok(sel.length >= 1 && sel.length <= 2, 'una oportunidad principal (y a lo sumo una más)');
   assert.ok(sel.every((s) => a.audit.findings.find((f) => f.id === s.findingId)?.level === 'confirmado'), 'solo argumentos confirmados');
   const sorted = [...sel].sort((x, y) => x.priority - y.priority);
   assert.deepEqual(sel.map((s) => s.findingId), sorted.map((s) => s.findingId), 'ordenados por prioridad comercial');

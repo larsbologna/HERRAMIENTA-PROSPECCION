@@ -246,7 +246,32 @@ La revisión de Instagram se puede desactivar con `INSTAGRAM_CHECK=false` en `.e
 
 ### Mensaje de contacto
 
-El mensaje se arma solo con argumentos **confirmados**, ordenados por prioridad comercial (1 = más importante), con un problema principal y, como mucho, dos más. Cada problema explica la **consecuencia** para el negocio, no el dato técnico. Estructura: saludo, presentación ("Soy Iván Bologna, Gestor de Presencia Online…"), contexto, problemas, servicios relacionados y el pedido de permiso para mandar un audio corto. Entre 120 y 220 palabras, sin frases de agencia ("potenciar", "siguiente nivel", "sin compromiso"…). Si no hay nada confirmado, el mensaje no inventa problemas.
+**Enfoque de ventas, no de auditoría.** El objetivo del mensaje no es vender el servicio: es que el dueño **responda**. No lista errores técnicos. Toma **una oportunidad concreta y confirmada** y la cuenta desde el cliente del negocio:
+
+1. **Saludo** breve.
+2. **Presentación** ("Soy Iván Bologna, Gestor de Presencia Online.").
+3. **Que se revisó el negocio**, reconociendo lo que ya tiene ("ya tienen Instagram y reservas online…").
+4. **La oportunidad**: lo que vive el cliente y qué hace. Por ejemplo: *"Una persona puede encontrar el negocio pero no tiene una forma directa de escribirles. Cada paso extra aumenta la probabilidad de que abandone…"*.
+5. **La pérdida económica**, en el lenguaje del rubro:
+   - barbería: turnos perdidos, huecos en la agenda, cancelaciones;
+   - restaurante: mesas vacías, pedidos y reservas perdidos;
+   - gimnasio: socios que no consultan, clases de prueba desaprovechadas;
+   - estética: turnos, baja ocupación, clientes que comparan precios;
+   - taller: consultas que no llegan, confianza, clientes que llaman a varios;
+   - salud: pacientes que sacan turno en otro lado;
+   - cualquier otro negocio local: ventas y consultas que se lleva otro.
+6. **El beneficio** de resolverlo.
+7. **Una pregunta simple** ("¿Te puedo mandar un audio de un minuto mostrándote lo que vi?").
+
+**Tamaños:**
+- **Completo:** entre 80 y 150 palabras, máximo 2 párrafos. Suma una segunda oportunidad solo si entra.
+- **Mediano:** la oportunidad principal, directo al punto.
+- **Corto:** un solo párrafo.
+- **Seguimiento.**
+
+**Otra versión** arma un texto distinto: cambia el saludo, las frases, la pregunta final y qué oportunidad abre el mensaje. Al lado de cada mensaje se muestra, solo para vos, el **motivo comercial** usado, el **dolor económico** detectado y el **beneficio** comunicado.
+
+Se usan solo oportunidades confirmadas: nunca se inventa un problema ni se ofrece lo que el negocio ya tiene. Si no hay nada confirmado, el mensaje lo dice con honestidad.
 
 Botones de la tarjeta **Mensaje de contacto**:
 
@@ -363,7 +388,7 @@ Todas las rutas requieren sesión salvo las de `/api/auth` (login, estado, alta 
 | GET | `/api/export` | Copia de seguridad JSON (admin) |
 
 ```bash
-npm test           # 134 tests: unitarios, presupuesto, CRM, migraciones, autenticación y roles, API, mensajes, diagnóstico, confiabilidad, generador (dedupe, score, persistencia, API e interfaz), canales e Instagram simulado, mensajes, layout y e2e con Chromium
+npm test           # 135 tests: unitarios, presupuesto, CRM, migraciones, autenticación y roles, API, mensajes, diagnóstico, confiabilidad, generador (dedupe, score, persistencia, API e interfaz), canales e Instagram simulado, mensajes, layout y e2e con Chromium
 npm run typecheck
 ```
 

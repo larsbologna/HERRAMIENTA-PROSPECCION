@@ -180,6 +180,13 @@ test('19. "Buscar 20 barberías" entrega 20 prospectos YA ANALIZADOS (con potenc
   assert.ok(items.every((p: { category: string }) => p.category === 'Barbería'), 'solo barberías');
   const card = (await admin.get(`/api/prospeccion/ficha/${items[0].id}`)).body;
   assert.ok(card.messages.primerContacto.includes(card.name), 'mensaje personalizado listo');
+  assert.ok(card.messages.primerContactoMedio && card.messages.primerContactoCorto, 'tres tamaños');
+  assert.ok(card.messageInsight.motivo && card.messageInsight.dolor && card.messageInsight.beneficio, 'motivo, dolor y beneficio');
+  assert.equal(card.messageInsight.rubro, 'Barbería');
+  const otra = (await admin.get(`/api/prospects/${items[0].id}/mensaje?tipo=primerContactoMedio&variante=1`)).body;
+  assert.notEqual(otra.texto, card.messages.primerContactoMedio, 'Otra versión cambia el texto');
+  assert.equal(otra.mensajes.primerContactoMedio, otra.texto);
+  assert.ok(otra.insight.motivo);
   assert.ok(card.opportunities.headline.length > 3, 'oportunidad');
   assert.ok(card.potentialReason.startsWith('Potencial'), 'motivo del potencial');
   assert.ok(card.channels.instagram && card.channels.web && card.channels.whatsapp && card.channels.reservas);

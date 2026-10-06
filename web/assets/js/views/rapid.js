@@ -1,5 +1,5 @@
 import { api } from '../api.js';
-import { $, autoGrow, copyText, esc, icon, number, toast, WA_TARGET, waMeUrl, waPhone } from '../ui.js';
+import { $, autoGrow, copyText, esc, icon, messageInsightHtml, number, toast, WA_TARGET, waMeUrl, waPhone } from '../ui.js';
 import { potentialBadge } from './prospecting.js';
 
 /**
@@ -53,7 +53,11 @@ function cardHtml(c, msgKey) {
     </div>` : ''}
     <div class="rq-msg">
       <div class="rq-msg-head"><div class="label">Mensaje</div>
-        <div class="tabs rq-tabs" role="tablist"><button data-k="primerContacto" class="${msgKey === 'primerContacto' ? 'on' : ''}">Completo</button><button data-k="primerContactoCorto" class="${msgKey === 'primerContactoCorto' ? 'on' : ''}">Corto</button></div></div>
+        <div class="rq-msg-tools">
+          <div class="tabs rq-tabs" role="tablist" aria-label="Tamaño del mensaje">${[['primerContacto', 'Completo'], ['primerContactoMedio', 'Mediano'], ['primerContactoCorto', 'Corto']].map(([k, l]) => `<button data-k="${k}" class="${msgKey === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+          <button class="btn btn-sm" id="rq-regen" title="Generar otro texto">${icon('refresh')}Otra versión</button>
+        </div></div>
+      <div id="rq-insight">${messageInsightHtml(c.messageInsight)}</div>
       <textarea class="textarea wa-text" id="rq-text" aria-label="Mensaje (editable)"></textarea>
     </div>
     <div class="btn-row rq-contact">
@@ -173,6 +177,24 @@ export async function render(main, _params, ctx) {
       };
     }
     setText();
+    $('#rq-regen', main).onclick = async () => {
+      const btn = $('#rq-regen', main);
+      btn.disabled = true;
+      try {
+        const r = await api.messageVariant(card.id, msgKey, (card.variant ?? 0) + 1);
+        card.variant = r.variante;
+        card.messages = { ...card.messages, ...r.mensajes };
+        $('#rq-insight', main).innerHTML = messageInsightHtml(r.insight);
+        setText();
+        ta.classList.remove('flash');
+        void ta.offsetWidth;
+        ta.classList.add('flash');
+      } catch (err) {
+        toast(err.message, 'err');
+      } finally {
+        btn.disabled = false;
+      }
+    };
     $('#rq-copy', main).onclick = async () => { await copyText(ta.value); toast('Mensaje copiado: pegalo en WhatsApp con Ctrl+V'); };
     const wa = $('#rq-wa', main);
     if (wa?.tagName === 'A') wa.addEventListener('click', () => { void copyText(ta.value).catch(() => {}); toast('Abriendo el chat · mensaje también copiado'); });

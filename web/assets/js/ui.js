@@ -219,6 +219,17 @@ export function waLink(phone, text) {
   return waMeUrl(waPhone(phone), text);
 }
 
+/** Por qué el mensaje dice lo que dice: motivo comercial, dolor económico y beneficio (para el vendedor, no se envía). */
+export function messageInsightHtml(ins) {
+  if (!ins) return '';
+  return `<div class="msg-insight">
+    <div><span class="label">Motivo comercial</span>${esc(ins.motivo)}</div>
+    <div><span class="label">Dolor económico</span>${esc(ins.dolor)}</div>
+    <div><span class="label">Beneficio comunicado</span>${esc(ins.beneficio)}</div>
+    <div class="faint">Adaptado a: ${esc(ins.rubro)}</div>
+  </div>`;
+}
+
 export function emptyState(iconName, title, text, actionHtml = '') {
   return `<div class="card empty"><div class="icon">${icon(iconName)}</div><h3>${esc(title)}</h3><p>${esc(text)}</p>${actionHtml}</div>`;
 }
