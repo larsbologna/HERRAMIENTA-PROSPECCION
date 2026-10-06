@@ -9,7 +9,7 @@ import { buildChannelReport } from '../src/channels/crossCheck.js';
 import type { InstagramAnalysis } from '../src/channels/instagram.js';
 import type { BusinessProfile } from '../src/domain/types.js';
 import { BANNED_PHRASES } from '../src/messages/pitch.js';
-import { buildInsight, buildMessages, buildSelection, reviewMessage, wordCount } from '../src/messages/whatsapp.js';
+import { buildInsight, buildMessages, buildSelection, CTAS, reviewMessage, wordCount } from '../src/messages/whatsapp.js';
 import { analyzeOpportunities } from '../src/opportunities/engine.js';
 import { BUILTIN_RUBROS, DEFAULT_CATALOG } from '../src/rubros/catalog.js';
 import { emptyAnalysis } from '../src/scraper/websiteAnalyzer.js';
@@ -54,7 +54,7 @@ test('Veterinaria Laprida: reconoce la reputación, habla de TURNOS y de la cons
   assert.match(t, /\bpuede\b/, 'consecuencia prudente');
   assert.doesNotMatch(t, /\breserv/i, 'una veterinaria habla de turnos, no de reservas');
   assert.doesNotMatch(t, /visible de escribirles por WhatsApp desde Google/, 'no es la frase técnica de antes');
-  assert.match(t, /(un minuto|\?)/, 'CTA simple');
+  assert.ok(/\?$/.test(t) || Object.values(CTAS).flat().some((c) => t.endsWith(c)), 'CTA simple');
   const n = wordCount(t);
   assert.ok(n >= 60 && n <= 150, `${n} palabras`);
   assert.equal(sel[0]!.text, 'Sin canal rápido de consulta', 'la prioridad de una veterinaria: el canal de consultas');
@@ -180,4 +180,42 @@ test('sin oportunidades confirmadas: mensaje honesto, sin inventar problemas', (
   const sel = buildSelection(d, SELLER);
   if (!sel.length) assert.match(buildMessages(d, SELLER).primerContacto, /no te voy a inventar problemas/);
   for (const s of sel) assert.notEqual(a.audit.findings.find((f) => f.id === s.findingId)?.level, 'probable');
+});
+
+test('CTA variable: distintas familias según el caso, sin "video" por defecto y sin prometer resultados', () => {
+  const finals = new Set<string>();
+  const families = new Set<string>();
+  let video = 0;
+  const cases: BusinessProfile[] = [];
+  for (let i = 0; i < 12; i++) {
+    cases.push(prof({ name: `Veterinaria Sur ${i}`, category: 'Veterinario', rating: 4.5, reviewCount: 60 + i * 20 }));
+    cases.push(prof({ name: `Barbería Corte ${i}`, category: 'Barbería', rating: 4.3, reviewCount: 25 + i * 7, photoCount: 3 }));
+    cases.push(prof({ name: `Pet Shop Kiara ${i}`, category: 'Tienda de mascotas', rating: 4.4, reviewCount: 40 + i, socialLinks: ['https://www.instagram.com/kiara/'] }));
+  }
+  for (const [k, p] of cases.entries()) {
+    const { m, ins } = forBusiness(p, undefined, `id-${k}`);
+    const last = m.primerContacto.split('\n\n').at(-1)!;
+    finals.add(last);
+    families.add(ins.cta);
+    if (/video/i.test(last)) video++;
+    for (const t of Object.values(m)) {
+      assert.doesNotMatch(t, /te voy a conseguir|vas a (aumentar|duplicar|ganar)|\d+\s?%/i, 'no promete resultados');
+    }
+  }
+  assert.ok(finals.size >= 6, `CTA distintos: ${finals.size}`);
+  assert.ok(families.size >= 3, `familias: ${[...families].join(', ')}`);
+  assert.ok(video <= cases.length / 6, `el video no es el CTA por defecto (${video} de ${cases.length})`);
+  // "Otra versión" cambia el cierre.
+  const v0 = forBusiness(VET, undefined, 'x', 0).m.primerContacto.split('\n\n').at(-1);
+  const others = [1, 2, 3].map((v) => forBusiness(VET, undefined, 'x', v).m.primerContacto.split('\n\n').at(-1));
+  assert.ok(others.some((o) => o !== v0), 'otra versión, otro CTA');
+});
+
+test('Guion para teléfono e Instagram: breves, para el canal correcto', () => {
+  const { m } = forBusiness(VET);
+  assert.match(m.telefono, /^Hola, ¿cómo va\? Soy Iván Bologna\./);
+  assert.match(m.telefono, /¿Con quién podría hablar sobre eso\?$/);
+  assert.ok(wordCount(m.telefono) <= 70, `${wordCount(m.telefono)} palabras`);
+  assert.ok(wordCount(m.instagram) < wordCount(m.primerContacto) / 2, 'Instagram es bastante más corto');
+  assert.doesNotMatch(m.instagram, /WhatsApp/i);
 });

@@ -2,7 +2,7 @@ import { api } from '../api.js';
 import { openAddRubro } from './prospecting.js';
 import {
   $, $$, IMP, autoGrow, confirmDialog, modal, copyText, date, dateTime, esc, icon, money, moneyShort, number, scoreClass,
-  statusLabel, statusOptions, toast, waMeUrl, waWebUrl, waPhone, WA_TARGET, messageInsightHtml,
+  statusLabel, statusOptions, toast, waMeUrl, waWebUrl, WA_TARGET, messageInsightHtml,
 } from '../ui.js';
 
 function ring(score) {
@@ -234,10 +234,13 @@ function valueCard(p) {
   </section>`;
 }
 
-/** Número de WhatsApp CONFIRMADO (de un enlace de WhatsApp o del contacto de Instagram). */
-const confirmedWa = (p) => p.analysis?.channels?.whatsappNumber;
-/** Número al que se abre el chat: el WhatsApp confirmado o, si no hay, el teléfono de Google. */
-const chatNumber = (p) => confirmedWa(p) || waPhone(p.phone);
+/** Número de WhatsApp CONFIRMADO (de un enlace de WhatsApp o del contacto de Instagram), ya normalizado. */
+const confirmedWa = (p) => (p.contactPlan?.whatsapp.state === 'confirmado' ? p.contactPlan.whatsapp.number : null);
+/**
+ * Número al que se abre el chat: el WhatsApp confirmado o, si el teléfono de Google es un celular, ese
+ * celular (WhatsApp SIN confirmar). Un fijo nunca se trata como WhatsApp.
+ */
+const chatNumber = (p) => confirmedWa(p) || (p.contactPlan?.whatsapp.state === 'sin_confirmar' ? p.contactPlan.whatsapp.number : null);
 const igUrl = (p) => p.analysis?.channels?.instagramUrl;
 
 function selectionHtml(sel) {
@@ -259,12 +262,14 @@ function messagesCard(p) {
       <button data-msg="primerContactoMedio">Mediano</button>
       <button data-msg="primerContactoCorto">Corto</button>
       <button data-msg="instagram">Instagram</button>
+      <button data-msg="telefono">Llamada</button>
       <button data-msg="seguimiento">Seguimiento</button>
     </div>
     <textarea class="textarea wa-text" id="msg" aria-label="Mensaje de contacto (editable)"></textarea>
     <p class="faint msg-hint" id="msg-hint">Podés editarlo antes de enviarlo. Si no te gusta, tocá "Otra versión".</p>
     <div class="btn-row contact-row">
-      <a class="btn btn-sm ${num ? 'btn-wa' : ''}" id="wa" target="${WA_TARGET}">${icon(num ? 'message' : 'external')}Abrir WhatsApp</a>
+      ${num ? `<a class="btn btn-sm ${wa ? 'btn-wa' : ''}" id="wa" target="${WA_TARGET}">${icon('message')}${wa ? 'Abrir WhatsApp' : 'Probar WhatsApp (sin confirmar)'}</a>` : ''}
+      ${!wa && p.contactPlan?.phone ? `<a class="btn btn-sm" id="call" href="${esc(p.contactPlan.phone.tel)}">${icon('phone')}Llamar</a>` : ''}
       ${ig ? `<a class="btn btn-sm" id="ig" href="${esc(ig)}" target="_blank" rel="noopener">${icon('external')}Abrir Instagram</a>` : ''}
       <button class="btn btn-sm" id="copy">${icon('copy')}Copiar mensaje</button>
       <button class="btn btn-sm btn-primary" id="sent">${icon('check')}Registrar envío</button>
@@ -275,8 +280,8 @@ function messagesCard(p) {
     </div>
     ${wa
       ? `<p class="faint contact-note">WhatsApp +${esc(wa)}, encontrado en ${esc(p.analysis.channels.whatsappSource ?? 'sus canales')}. Se abre con el mensaje cargado: no se envía solo.</p>`
-      : num ? `<p class="faint contact-note">Se abre el chat con +${esc(num)} (teléfono de Google, no se confirmó que tenga WhatsApp) con el mensaje cargado: no se envía solo.</p>`
-      : '<p class="faint contact-note">No hay WhatsApp ni teléfono del negocio: WhatsApp se abre para que elijas el contacto.</p>'}
+      : num ? `<p class="faint contact-note">WhatsApp no confirmado: el teléfono de Google (${esc(p.phone)}) es un celular, así que podés probar el chat con +${esc(num)}. Si no tiene WhatsApp, llamá.</p>`
+      : `<p class="faint contact-note">WhatsApp no detectado.${p.contactPlan?.phone ? ` Contacto disponible por teléfono: ${esc(p.phone)}.` : ' Sin teléfono: usá Instagram, la web o la ficha de Google Maps.'}</p>`}
     ${ig ? '<p class="faint contact-note">Instagram: abrí el perfil y pegá el mensaje en un mensaje directo ("Copiar mensaje").</p>' : ''}
   </section>`;
 }
@@ -346,7 +351,7 @@ export async function render(main, { id }, ctx) {
   let p = await api.prospect(id);
   let msgKey = 'primerContacto';
   // "Otra versión": versión pedida y texto generado por tipo de mensaje (se conservan al recargar el perfil).
-  const variants = { primerContacto: 0, primerContactoMedio: 0, primerContactoCorto: 0, instagram: 0, seguimiento: 0 };
+  const variants = { primerContacto: 0, primerContactoMedio: 0, primerContactoCorto: 0, instagram: 0, telefono: 0, seguimiento: 0 };
   let rubros = (await api.rubros()).items;
   const generated = {};
   let edited = false;
@@ -355,7 +360,7 @@ export async function render(main, { id }, ctx) {
     main.innerHTML = `
       <div class="profile-head">
         <div>
-          <a class="back" href="/prospectos" data-link>${icon('arrowLeft', 'width="14" height="14"')}${ctx.isAdmin ? 'Prospectos' : 'Mis prospectos'}</a>
+          <a class="back" href="/prospeccion" data-link>${icon('arrowLeft', 'width="14" height="14"')}Prospección</a>
           <h1>${esc(p.name)}</h1>
           <div class="muted">${esc(p.category ?? '')}</div>
           <div class="rubro-line">
@@ -408,7 +413,7 @@ export async function render(main, { id }, ctx) {
   // la app: WhatsApp (abierto, cerrado o minimizado) recibe el enlace por el mecanismo normal del sistema.
   const setWaHref = (text) => {
     const a = $('#wa', main);
-    a.href = waMeUrl(chatNumber(p), text);
+    if (a) a.href = waMeUrl(chatNumber(p), text);
     const web = $('#wa-web', main);
     if (web) web.href = waWebUrl(chatNumber(p), text);
   };
@@ -514,13 +519,13 @@ export async function render(main, { id }, ctx) {
       if (!(await confirmDialog('Eliminar prospecto', `Se borra ${p.name} con todo su historial y auditorías. No se puede deshacer.`, 'Eliminar'))) return;
       await api.remove(id);
       toast(`${p.name} eliminado`);
-      ctx.navigate('/prospectos');
+      ctx.navigate('/prospeccion');
     });
 
     // Mensajes
     for (const b of $$('[data-msg]', main)) b.onclick = () => { msgKey = b.dataset.msg; showMessage(); };
     $('#msg', main).oninput = (e) => { edited = true; autoGrow(e.target); setWaHref(e.target.value); };
-    $('#wa', main).addEventListener('click', onWhatsAppClick);
+    $('#wa', main)?.addEventListener('click', onWhatsAppClick);
     $('#regen', main).onclick = async () => {
       if (edited && !(await confirmDialog('Generar otra versión', 'Vas a perder los cambios que hiciste a mano en este mensaje.', 'Generar otra'))) return;
       const btn = $('#regen', main);

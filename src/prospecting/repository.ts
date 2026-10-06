@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Db } from '../db/database.js';
+import { RESPONDED_STATUSES } from '../crm/types.js';
 import { POTENTIAL_ORDER } from './sql.js';
 import { rubroKey, rubroLabel, zonaKey } from './rubros.js';
 
@@ -143,9 +144,18 @@ export class ProspectingRepository {
    * Cola de "Siguiente prospecto": SOLO los no contactados de la campaña (o de los filtros), por
    * potencial (alto primero) y reseñas. Un vendedor solo ve los suyos.
    */
-  queue(f: { campaignId?: string; rubro?: string; zona?: string; potential?: string; userId?: string }): QueueItem[] {
-    const where = [`p.status = 'sin_contactar'`];
+  /**
+   * Cola de "Siguiente prospecto". Estado: 'pendientes' (por defecto: solo no contactados), 'todos'
+   * (primero los no contactados), 'respondieron' o un estado puntual.
+   */
+  queue(f: { campaignId?: string; rubro?: string; zona?: string; potential?: string; userId?: string; status?: string }): QueueItem[] {
+    const where: string[] = [];
     const args: string[] = [];
+    const st = f.status || 'pendientes';
+    if (st === 'pendientes' || st === 'sin_contactar') where.push(`p.status = 'sin_contactar'`);
+    else if (st === 'respondieron') where.push(`p.status IN (${RESPONDED_STATUSES.map((x) => `'${x}'`).join(', ')})`);
+    else if (st !== 'todos') { where.push('p.status = ?'); args.push(st); }
+    if (!where.length) where.push('1 = 1');
     if (f.campaignId) { where.push('p.campaign_id = ?'); args.push(f.campaignId); }
     if (f.rubro === 'none') where.push('p.rubro_key IS NULL');
     else if (f.rubro) { where.push('p.rubro_key = ?'); args.push(f.rubro); }
@@ -153,7 +163,7 @@ export class ProspectingRepository {
     if (f.potential) { where.push('p.potential_level = ?'); args.push(f.potential); }
     if (f.userId) { where.push('p.assigned_user_id = ?'); args.push(f.userId); }
     const rows = this.db.prepare(`SELECT p.id, p.name, p.potential_level FROM prospects p LEFT JOIN campaigns c ON c.id = p.campaign_id
-      WHERE ${where.join(' AND ')} ORDER BY ${POTENTIAL_ORDER}, COALESCE(p.review_count, 0) DESC, p.created_at ASC, p.id ASC`).all(...args) as Row[];
+      WHERE ${where.join(' AND ')} ORDER BY CASE WHEN p.status = 'sin_contactar' THEN 0 ELSE 1 END, ${POTENTIAL_ORDER}, COALESCE(p.review_count, 0) DESC, p.created_at ASC, p.id ASC`).all(...args) as Row[];
     return rows.map((r) => ({ id: String(r.id), name: String(r.name), potentialLevel: (r.potential_level as string) ?? null }));
   }
 }

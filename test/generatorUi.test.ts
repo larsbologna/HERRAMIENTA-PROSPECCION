@@ -86,7 +86,7 @@ test('generar, seguir y analizar desde la interfaz', { timeout: 240_000 }, async
   page.on('pageerror', (e) => errors.push(e.message));
   await login(page);
   const menu = await page.$$eval('#nav a', (as) => as.map((a) => a.textContent?.trim()));
-  assert.ok(!menu.includes('Generador') && !menu.includes('Pipeline') && menu.includes('Prospectos'), 'el menú: Prospectos es el centro (sin Generador ni Pipeline)');
+  assert.ok(!menu.includes('Generador') && !menu.includes('Pipeline') && menu.includes('Prospección'), 'el menú: Prospección es el centro (sin Generador ni Pipeline)');
 
   await page.goto(`${base}/generador`); // ya no está en el menú: se entra desde Prospección
   await page.waitForSelector('#gen-form');

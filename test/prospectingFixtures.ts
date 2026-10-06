@@ -71,6 +71,22 @@ export function petShops(): FakeBusiness[] {
   }));
 }
 
+/**
+ * Ópticas con TODOS los casos de contacto:
+ * WhatsApp confirmado · fijo sin WhatsApp · Instagram sin WhatsApp · celular sin confirmar · solo web · sin canales.
+ */
+export function opticas(): FakeBusiness[] {
+  const base = { category: 'Óptica', rating: 4.5, reviews: 90 };
+  return [
+    { ...base, name: 'Óptica Con WhatsApp', address: 'Mitre 1, Quilmes', phone: '011 15 3200-1111', instagram: 'https://www.instagram.com/opticawa/', igWhatsapp: '11 3200-1111' },
+    { ...base, name: 'Óptica Teléfono Fijo', address: 'Mitre 2, Quilmes', phone: '011 4253-1234' },
+    { ...base, name: 'Óptica Instagram', address: 'Mitre 3, Quilmes', phone: '011 4253-5678', instagram: 'https://www.instagram.com/opticaig/' },
+    { ...base, name: 'Óptica Celular', address: 'Mitre 4, Quilmes', phone: '011 15 3200-4444' },
+    { ...base, name: 'Óptica Solo Web', address: 'Mitre 5, Quilmes', website: 'https://opticaweb.com.ar' },
+    { ...base, name: 'Óptica Sin Canales', address: 'Mitre 6, Quilmes' },
+  ];
+}
+
 /** Un Google Maps simulado: por rubro (en minúsculas) → negocios. */
 export class FakeMaps {
   readonly byUrl = new Map<string, FakeBusiness>();

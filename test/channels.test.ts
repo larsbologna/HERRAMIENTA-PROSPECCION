@@ -11,7 +11,7 @@ import {
 } from '../src/channels/links.js';
 import type { AnalysisResult, BusinessProfile } from '../src/domain/types.js';
 import { BANNED_PHRASES } from '../src/messages/pitch.js';
-import { buildMessages, composeSelection, wordCount } from '../src/messages/whatsapp.js';
+import { buildMessages, composeSelection, CTAS, wordCount } from '../src/messages/whatsapp.js';
 import { whatsappLink } from '../src/proposal/whatsappMessage.js';
 import { emptyAnalysis } from '../src/scraper/websiteAnalyzer.js';
 import { Client, loggedClient, startApp } from './helpers.js';
@@ -200,7 +200,7 @@ test('mensaje personalizado: personalización, observación, consecuencia, oport
   assert.match(t, /^(Hola|Buenas|Buen día)/);
   assert.match(t, /Soy Iván Bologna, Gestor de Presencia Online/);
   assert.match(t, /Barbería 12 Navajas/);
-  assert.match(t, /(\?|un minuto[^.]*\.|sin vueltas\.)$/, 'cierra con un pedido simple');
+  assert.ok(/\?$/.test(t) || Object.values(CTAS).flat().some((c) => t.endsWith(c)), 'cierra con un pedido simple');
   assert.match(t, /\b(puede|podría)\b/, 'consecuencia prudente');
   assert.doesNotMatch(t, /\breserv/i, 'una barbería habla de turnos');
   const n = wordCount(t);

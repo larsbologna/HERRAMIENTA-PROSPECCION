@@ -8,7 +8,7 @@ import { ROOT_DIR, config } from '../config/index.js';
 import { DB_FILE } from '../crm/index.js';
 import { NotFoundError, endOfToday, type CrmRepository } from '../crm/repository.js';
 import { dashboard, metrics, personalKpis } from '../crm/stats.js';
-import { ACTIVITY_TYPES, MANUAL_ACTIVITY_TYPES, QUICK_STATUSES, STATUSES, isStatus, type FollowupStatus, type ProspectFilter, type Settings } from '../crm/types.js';
+import { ACTIVITY_TYPES, MANUAL_ACTIVITY_TYPES, QUICK_STATUSES, STATUSES, isStatus, type ActivityType, type FollowupStatus, type ProspectFilter, type Settings } from '../crm/types.js';
 import { DEFAULT_VERTICAL, VERTICALS } from '../domain/verticals.js';
 import { buildInsight, buildMessages, buildSelection, MESSAGE_KEYS, type MessageKey } from '../messages/whatsapp.js';
 import { generateProspects as defaultGenerate, MAX_CANTIDAD } from '../generator/generator.js';
@@ -20,6 +20,7 @@ import { ProspectingJobs, type JobState } from '../prospecting/job.js';
 import { opportunityProfile } from '../prospecting/opportunities.js';
 import type { ProspectingRepository } from '../prospecting/repository.js';
 import { zonaKey } from '../prospecting/rubros.js';
+import { contactPlan, parseContactOrder } from '../prospecting/contact.js';
 import { SERVICE_CATALOG } from '../proposal/services.js';
 import {
   HttpError,
@@ -122,7 +123,7 @@ export function createApp(deps: AppDeps): http.Server {
     res.setHeader('Set-Cookie', serializeCookie(COOKIE, '', { maxAge: 0, secure: secureCookie(req) }));
   const publicUser = (u: User) => ({ id: u.id, name: u.name, username: u.username, email: u.email, role: u.role });
 
-  const globalSettings = (): Settings => repo.settings({ sellerName: '', sellerBusiness: config.seller.business, sellerCity: '', sellerIntro: '', sellerLink: '' });
+  const globalSettings = (): Settings => repo.settings({ sellerName: '', sellerBusiness: config.seller.business, sellerCity: '', sellerIntro: '', sellerLink: '', contactOrder: '' });
   /** Los mensajes de WhatsApp firman con el nombre del usuario conectado. */
   const sellerFor = (u: User) => {
     const s = globalSettings();
@@ -153,6 +154,10 @@ export function createApp(deps: AppDeps): http.Server {
       ...detail, rubroProfile: undefined,
       messages: buildMessages(detail, seller), messageSelection: buildSelection(detail, seller), messageInsight: buildInsight(detail, seller),
       opportunityProfile: detail.analysis?.proposal ? opportunityProfile(detail.analysis, detail.rubroProfile) : null,
+      contactPlan: contactPlan({
+        phone: detail.phone, whatsappNumber: detail.analysis?.channels?.whatsappNumber, whatsappSource: detail.analysis?.channels?.whatsappSource,
+        instagramUrl: detail.analysis?.channels?.instagramUrl ?? detail.contact?.instagramUrl, websiteUrl: detail.contact?.websiteUrl, mapsUrl: detail.mapsUrl,
+      }, contactOrder()),
     };
   };
 
@@ -190,7 +195,15 @@ export function createApp(deps: AppDeps): http.Server {
       opportunities: a?.proposal ? opportunityProfile(a, d.rubroProfile) : null,
       messages: buildMessages(d, seller),
       messageInsight: buildInsight(d, seller),
+      contactPlan: contactPlan({
+        phone: d.phone, whatsappNumber: ch?.whatsappNumber, whatsappSource: ch?.whatsappSource, instagramUrl: ch?.instagramUrl ?? d.contact?.instagramUrl, websiteUrl: ownWeb, mapsUrl: d.mapsUrl,
+      }, contactOrder()),
     };
+  };
+  const contactOrder = () => parseContactOrder(globalSettings().contactOrder);
+  const estadoParam = (v: string | null) => {
+    const e = v || 'pendientes';
+    return e === 'pendientes' || e === 'todos' || e === 'respondieron' || isStatus(e) ? e : 'pendientes';
   };
 
   const router = new Router()
@@ -462,7 +475,14 @@ export function createApp(deps: AppDeps): http.Server {
         sort: 'potentialLevel',
         dir: 'asc',
       });
-      return { items, total: items.length };
+      const order = contactOrder();
+      return {
+        items: items.map((p) => ({
+          ...p,
+          contactPlan: contactPlan({ phone: p.phone, whatsappNumber: p.contact.whatsappNumber, instagramUrl: p.contact.instagramUrl, websiteUrl: p.contact.websiteUrl, mapsUrl: p.mapsUrl }, order),
+        })),
+        total: items.length,
+      };
     })
     // Cola de "Siguiente prospecto": solo los NO contactados de la campaña / filtros.
     .on('GET', '/api/prospeccion/cola', ({ query, user }) => {
@@ -475,6 +495,7 @@ export function createApp(deps: AppDeps): http.Server {
           zona: query.get('zona') ? zonaKey(query.get('zona')!) : undefined,
           potential: potencial === 'alto' || potencial === 'medio' || potencial === 'bajo' ? potencial : undefined,
           userId: isAdmin(user) ? undefined : user.id,
+          status: estadoParam(query.get('estado')),
         }),
       };
     })
@@ -486,7 +507,7 @@ export function createApp(deps: AppDeps): http.Server {
     // Resultado del contacto: estado + (mensaje enviado | fecha para contactar después | nota).
     .on('POST', '/api/prospeccion/:id/resultado', async ({ req, params, user }) => {
       ensureAccess(user, params.id!);
-      const body = await readJson<{ estado?: unknown; fecha?: unknown; mensaje?: unknown; nota?: unknown }>(req);
+      const body = await readJson<{ estado?: unknown; fecha?: unknown; mensaje?: unknown; nota?: unknown; canal?: unknown }>(req);
       const estado = String(body.estado ?? '');
       if (!isStatus(estado)) throw new HttpError(400, 'Estado inválido.');
       const nota = String(body.nota ?? '').trim();
@@ -498,7 +519,14 @@ export function createApp(deps: AppDeps): http.Server {
       }
       repo.update(params.id!, { status: estado }, user.id);
       deps.generator?.syncFromCrm(params.id!, estado);
-      if (estado === 'contactado' && mensaje) repo.addActivity(params.id!, 'whatsapp', `Mensaje enviado (Prospección rápida):\n\n${mensaje.slice(0, 4500)}`, user.id);
+      // Canal usado: WhatsApp e Instagram guardan el mensaje; la llamada, el guion; web y Maps, como nota.
+      const canal = String(body.canal ?? 'whatsapp');
+      const CANAL: Record<string, [ActivityType, string]> = {
+        whatsapp: ['whatsapp', 'Mensaje enviado por WhatsApp'], instagram: ['otro', 'Mensaje enviado por Instagram'],
+        telefono: ['llamada', 'Llamada (guion usado)'], web: ['otro', 'Contacto por la web'], maps: ['otro', 'Contacto desde Google Maps'],
+      };
+      const [actType, actLabel] = CANAL[canal] ?? CANAL.whatsapp!;
+      if (estado === 'contactado' && mensaje) repo.addActivity(params.id!, actType, `${actLabel} (Prospección):\n\n${mensaje.slice(0, 4500)}`, user.id);
       else if (nota && estado !== 'contactar_despues') repo.addActivity(params.id!, 'nota', nota.slice(0, 4500), user.id);
       return { ok: true, status: estado };
     })

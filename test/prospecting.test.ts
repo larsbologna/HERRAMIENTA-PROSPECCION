@@ -255,7 +255,7 @@ test('16. Cambio de estado: historial con el mensaje usado y el Generador sincro
   assert.equal(contacted.length, 1);
   const d = (await admin.get(`/api/prospects/${contacted[0].id}`)).body;
   assert.equal(d.status, 'contactado');
-  assert.ok(d.activities.some((a: { type: string; content: string }) => a.type === 'whatsapp' && a.content.includes('Mensaje enviado (Prospección rápida)') && a.content.includes(d.name)));
+  assert.ok(d.activities.some((a: { type: string; content: string }) => a.type === 'whatsapp' && a.content.includes('Mensaje enviado por WhatsApp (Prospección)') && a.content.includes(d.name)));
   assert.ok(d.activities.some((a: { type: string; toStatus: string }) => a.type === 'estado' && a.toStatus === 'contactado'));
   const gen = (await admin.get('/api/generador?estado=contactado')).body.items;
   assert.ok(gen.some((g: { prospectId: string }) => g.prospectId === contacted[0].id), 'el Generador ve el mismo estado');

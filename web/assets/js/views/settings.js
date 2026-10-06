@@ -95,6 +95,8 @@ function servicesForm(prices, catalog, defaults) {
 
 const slug = (t) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || 'servicio';
 
+const CH_NAME = { whatsapp: 'WhatsApp (confirmado)', instagram: 'Instagram', telefono: 'Teléfono (llamar)', web: 'Web', maps: 'Google Maps' };
+
 async function general(box, ctx) {
   const s = await api.settings();
   const prices = s.prices;
@@ -108,6 +110,12 @@ async function general(box, ctx) {
         <div class="kv"><span>Presentación</span><span>${esc(st.sellerIntro || 'Por defecto')}</span></div>
         <div class="kv"><span>Web / Instagram</span><span>${esc(st.sellerLink || '—')}</span></div>
         <p class="faint" style="font-size:12px;margin:10px 0 0">Se usan en los mensajes de WhatsApp. Cada mensaje se firma con el nombre del usuario que lo envía (se edita en Usuarios).</p>
+      </section>
+      <section class="card" id="contact-order">
+        <div class="card-head"><h2>Canal para "Contactar"</h2></div>
+        <p class="faint" style="font-size:12.5px;margin:0 0 10px">En Prospección, CONTACTAR usa el primer canal disponible de esta lista. El WhatsApp solo cuenta si está confirmado (un teléfono no es WhatsApp).</p>
+        <ol class="co-list">${(st.contactOrder || 'whatsapp,instagram,telefono,web,maps').split(',').map((k, i, arr) => `<li data-ch="${esc(k)}"><span>${esc(CH_NAME[k] ?? k)}</span>
+          <span class="co-btns"><button class="icon-btn" type="button" data-up ${i === 0 ? 'disabled' : ''} aria-label="Subir">▲</button><button class="icon-btn" type="button" data-down ${i === arr.length - 1 ? 'disabled' : ''} aria-label="Bajar">▼</button></span></li>`).join('')}</ol>
       </section>
       <section class="card">
         <div class="card-head"><h2>Datos y copia de seguridad</h2></div>
@@ -131,6 +139,26 @@ async function general(box, ctx) {
         <p class="muted" style="font-size:13px;margin-bottom:0">Los presupuestos muestran pago inicial + abono mensual. Al guardar, se recalculan los de todos los prospectos.</p>
       </section>
     </div>`;
+
+  // Orden de canales para "Contactar": se guarda al instante.
+  for (const li of $$('#contact-order li', box)) {
+    const move = async (dir) => {
+      const order = $$('#contact-order li', box).map((x) => x.dataset.ch);
+      const i = order.indexOf(li.dataset.ch);
+      const j = i + dir;
+      if (j < 0 || j >= order.length) return;
+      [order[i], order[j]] = [order[j], order[i]];
+      try {
+        await api.saveSettings({ contactOrder: order.join(',') });
+        toast('Orden de canales guardado');
+        general(box, ctx);
+      } catch (err) {
+        toast(err.message, 'err');
+      }
+    };
+    $('[data-up]', li).onclick = () => move(-1);
+    $('[data-down]', li).onclick = () => move(1);
+  }
 
   $('#edit-info', box).onclick = () => {
     const m = modal(infoForm(st));

@@ -14,8 +14,8 @@ import { renderLogin, renderSetup } from './views/auth.js';
 /** Secciones del menú. `roles` limita quién las ve (sin roles = todos). */
 const NAV = [
   { path: '/', label: 'Dashboard', icon: 'dashboard', view: dashboard },
-  // PROSPECTOS: el centro de trabajo (buscar, filtrar, analizar, contactar y seguir).
-  { path: '/prospectos', label: 'Prospectos', vendedorLabel: 'Mis prospectos', icon: 'users', view: prospecting },
+  // PROSPECCIÓN: el centro de trabajo (buscar, filtrar, ver un prospecto, contactar y seguir).
+  { path: '/prospeccion', label: 'Prospección', icon: 'users', view: prospecting },
   // Fuera del menú: la Prospección ya busca y analiza sola. Se entra desde Prospección (reintentar análisis fallidos).
   { path: '/generador', label: 'Generador', icon: 'zap', view: generator, hidden: true },
   { path: '/auditorias', label: 'Auditorías', icon: 'audit', view: audits, roles: ['admin'] },
@@ -30,12 +30,15 @@ let renderToken = 0;
 const allowed = (item) => !item.roles || item.roles.includes(ctx.user?.role);
 
 function route(pathname) {
-  if (pathname === '/prospectos/siguiente' || pathname === '/prospeccion/rapida') return { view: rapid, params: {}, nav: '/prospectos' };
-  if (pathname === '/prospectos/tabla') return { view: prospectsTable, params: {}, nav: '/prospectos' };
-  // Secciones que se unificaron en Prospectos (Pipeline se eliminó; Prospección es Prospectos).
-  if (pathname === '/prospeccion' || pathname === '/pipeline') return { view: prospecting, params: {}, nav: '/prospectos', redirectTo: '/prospectos' };
+  // Ficha de UN prospecto (con contacto y "Siguiente") y su variante sin id: el primero de la cola.
+  const pm = pathname.match(/^\/prospeccion\/p\/([^/]+)$/);
+  if (pm) return { view: rapid, params: { id: decodeURIComponent(pm[1]) }, nav: '/prospeccion' };
+  if (pathname === '/prospeccion/siguiente' || pathname === '/prospectos/siguiente' || pathname === '/prospeccion/rapida') return { view: rapid, params: {}, nav: '/prospeccion' };
+  if (pathname === '/prospectos/tabla') return { view: prospectsTable, params: {}, nav: '/prospeccion' };
+  // Secciones que se unificaron en Prospección (Pipeline y "Prospectos" llevan acá).
+  if (pathname === '/prospectos' || pathname === '/pipeline') return { view: prospecting, params: {}, nav: '/prospeccion', redirectTo: '/prospeccion' };
   const m = pathname.match(/^\/prospectos\/([^/]+)$/);
-  if (m) return { view: prospect, params: { id: decodeURIComponent(m[1]) }, nav: '/prospectos' };
+  if (m) return { view: prospect, params: { id: decodeURIComponent(m[1]) }, nav: '/prospeccion' };
   const item = NAV.find((n) => n.path === pathname);
   // Rutas inexistentes o no permitidas para el rol → Dashboard
   if (!item || !allowed(item)) return { view: dashboard, params: {}, nav: '/', redirect: pathname !== '/' };
@@ -73,7 +76,7 @@ function refreshNav() {
   $('#nav').innerHTML = NAV.filter((n) => allowed(n) && !n.hidden).map(
     (n) => `<a href="${n.path}" data-link>${icon(n.icon)}<span>${ctx.isAdmin ? n.label : n.vendedorLabel ?? n.label}</span></a>`,
   ).join('');
-  const current = route(location.pathname).nav === '/generador' ? '/prospectos' : route(location.pathname).nav;
+  const current = route(location.pathname).nav === '/generador' ? '/prospeccion' : route(location.pathname).nav;
   for (const a of document.querySelectorAll('#nav a')) a.classList.toggle('active', a.getAttribute('href') === current);
   const u = ctx.user;
   const initials = u.name.split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase();

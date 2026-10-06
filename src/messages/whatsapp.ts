@@ -68,6 +68,8 @@ export interface ProspectMessages {
   primerContactoCorto: string;
   /** Mensaje directo de Instagram (más corto). */
   instagram: string;
+  /** Guion breve para iniciar una llamada. */
+  telefono: string;
   seguimiento: string;
 }
 
@@ -95,7 +97,77 @@ export interface MessageInsight {
   estilo: string;
   fuente: string;
   evidencia: string;
+  /** Familia de la llamada a la acción usada (Crecimiento, Mejora, Resultado…). */
+  cta: string;
   calidad: QualityCheck[];
+}
+
+// ------------------------------------------------------------------ llamadas a la acción
+
+/**
+ * Familias de CTA. El objetivo es conversar sobre MEJORAR el negocio y ATRAER más clientes, sin
+ * prometer resultados. Se elige según el contexto y varía entre prospectos y versiones.
+ */
+export type CtaFamily = 'crecimiento' | 'mejora' | 'resultado' | 'curiosidad' | 'directo' | 'consultivo' | 'video';
+export const CTA_LABEL: Record<CtaFamily, string> = {
+  crecimiento: 'Crecimiento', mejora: 'Mejora', resultado: 'Resultado', curiosidad: 'Curiosidad', directo: 'Directo', consultivo: 'Consultivo', video: 'Video',
+};
+export const CTAS: Record<CtaFamily, readonly string[]> = {
+  crecimiento: [
+    'Si están buscando atraer más clientes y mejorar cómo los encuentran online, podemos hablar y te cuento qué vi.',
+    'Si querés atraer más clientes y mejorar el negocio, podemos hablar.',
+    'Si están buscando crecer y atraer más clientes desde Google, podemos hablar.',
+  ],
+  mejora: [
+    'Si te interesa mejorar estos puntos, podemos hablar y te cuento qué haría primero.',
+    'Si te interesa mejorar la presencia online del negocio y aprovechar mejor las personas que ya los encuentran, podemos hablar.',
+    'Si te interesa mejorar estos puntos y aprovechar mejor el movimiento que ya tiene el negocio, escribime y lo vemos.',
+  ],
+  resultado: [
+    'Si querés aprovechar mejor la gente que ya los encuentra, podemos hablar.',
+    'Si querés mejorar esto y conseguir que más de esas búsquedas terminen en consultas, podemos hablar y te muestro algunas ideas.',
+    'Si te interesa atraer más clientes y mejorar cómo el negocio convierte esas búsquedas en consultas, podemos hablar y te cuento qué cambiaría primero.',
+  ],
+  curiosidad: [
+    'Si querés, te puedo mostrar dónde veo las principales oportunidades.',
+    'Si querés, podemos hablar y te muestro qué cambiaría primero para intentar conseguir más consultas.',
+  ],
+  directo: [
+    'Si están buscando mejorar la captación de clientes, escribime y lo vemos.',
+    'Si les interesa facilitar el contacto y generar más oportunidades, escribime y lo vemos.',
+  ],
+  consultivo: [
+    'Si te interesa, podemos hablar unos minutos y te cuento qué mejoraría primero.',
+    'Si te sirve, lo charlamos unos minutos y te cuento cómo lo encararía.',
+  ],
+  video: [
+    'Si querés, te mando un video de un minuto y te muestro exactamente qué encontré.',
+  ],
+};
+/** CTA cortos (mensaje corto e Instagram): una pregunta simple. */
+const SHORT_CTAS: Record<CtaFamily, readonly string[]> = {
+  crecimiento: ['¿Te interesa que lo charlemos?', '¿Lo hablamos?'],
+  mejora: ['¿Te cuento qué haría primero?', '¿Querés que te cuente qué mejoraría?'],
+  resultado: ['¿Te cuento cómo aprovecharlo mejor?', '¿Lo charlamos un minuto?'],
+  curiosidad: ['¿Te muestro dónde veo las oportunidades?', '¿Te cuento qué vi?'],
+  directo: ['¿Lo vemos?', '¿Te interesa que lo veamos?'],
+  consultivo: ['¿Lo charlamos unos minutos?', '¿Te cuento qué mejoraría primero?'],
+  video: ['¿Te mando un video corto con lo que encontré?'],
+};
+const ALL_CTA_ENDINGS = Object.values(CTAS).flat();
+/** Promesas que no podemos sostener (no tenemos esos datos). */
+const PROMISE = /(te voy a conseguir|les voy a conseguir|vas a (aumentar|duplicar|ganar|vender|tener m[aá]s)|van a (aumentar|duplicar|ganar)|garantiz)/i;
+
+/** Familias adecuadas para el caso, de la más a la menos. El "video" queda como alternativa, no por defecto. */
+function ctaFamiliesFor(style: MessageStyle, ctx: { visible: boolean; conversion: boolean; opps: number }): CtaFamily[] {
+  const out: CtaFamily[] = [];
+  if (style === 'directo') out.push('directo', 'mejora');
+  if (ctx.visible && ctx.conversion) out.push('resultado', 'crecimiento');
+  if (ctx.opps >= 2) out.push('mejora', 'consultivo');
+  if (style === 'competencia') out.push('crecimiento', 'curiosidad');
+  if (style === 'reputacion') out.push('resultado', 'consultivo');
+  out.push('consultivo', 'curiosidad', 'crecimiento', 'video');
+  return [...new Set(out)];
 }
 
 function hash(s: string): number {
@@ -156,7 +228,8 @@ export function reviewMessage(raw: string, kind: 'completo' | 'medio' | 'corto' 
     { label: `Vocabulario del rubro (${b === 'turnos' ? 'turnos' : b === 'reservas' ? 'reservas' : 'sin turnos ni reservas'})`, ok: b === 'reservas' ? true : b === 'turnos' ? !/\breserv/i.test(text) : !/\b(turnos?|reserv\w*)\b/i.test(text) },
     { label: 'Consecuencia comercial prudente ("puede", "podría")', ok: ctx.honest || kind === 'instagram' || /\b(puede|pueden|podría|podrían)\b/i.test(text) },
     { label: `Largo adecuado (${min}–${max} palabras)`, ok: words >= min && words <= max },
-    { label: 'Termina con un pedido simple', ok: /[?]$|un minuto[^.]*\.$|te muestro[^.]*\.$|sin vueltas\.$/.test(text.trim()) },
+    { label: 'Sin prometer resultados', ok: !PROMISE.test(text) },
+    { label: 'Termina con un pedido simple', ok: /[?]$/.test(text.trim()) || ALL_CTA_ENDINGS.some((c) => text.trim().endsWith(c)) },
   ];
 }
 const passes = (checks: QualityCheck[]) => checks.every((c) => c.ok);
@@ -169,6 +242,7 @@ interface Built {
   style: MessageStyle;
   lead?: Opportunity;
   checks: QualityCheck[];
+  cta: CtaFamily;
 }
 
 /** Temas que cuentan la misma historia (conseguir el contacto): no se juntan en un mismo mensaje. */
@@ -194,7 +268,7 @@ function stylesFor(report: OpportunityReport): MessageStyle[] {
   return [...new Set(order)];
 }
 
-function buildOnce(i: MessageInput, seller: Seller, report: OpportunityReport, style: MessageStyle, leadIdx: number, seed: string): Built {
+function buildOnce(i: MessageInput, seller: Seller, report: OpportunityReport, style: MessageStyle, leadIdx: number, seed: string, variant = 0): Built {
   const p = i.rubro ?? GENERAL_RUBRO;
   const me = seller.sellerName?.trim() || '[tu nombre]';
   const business = seller.sellerBusiness?.trim();
@@ -211,13 +285,17 @@ function buildOnce(i: MessageInput, seller: Seller, report: OpportunityReport, s
   const rest = opps.filter((o) => o !== lead);
   const strength: Strength | undefined = report.strengths.find((s) => s.id === 'reputacion' || s.id === 'visibilidad' || s.id === 'puntuacion') ?? report.strengths[0];
 
-  const ctas = [
-    'Si querés, te mando un video de un minuto y te muestro exactamente qué encontré.',
-    '¿Te mando un video corto mostrándote lo que vi?',
-    '¿Querés que te lo muestre en un audio de un minuto?',
-    'Si te interesa, te lo muestro en un video de un minuto, sin vueltas.',
-  ];
-  const cta = pick(ctas, seed, `z${style}`);
+  // CTA: familia según el contexto (la primera adecuada; "Otra versión" pasa a la siguiente) y frase variable por negocio.
+  const leadTopic = opps[leadIdx % Math.max(1, opps.length)]?.topic;
+  const families = ctaFamiliesFor(style, {
+    visible: report.strengths.some((s) => s.id === 'reputacion' || s.id === 'visibilidad'),
+    conversion: !!leadTopic && CONVERSION_TOPICS.includes(leadTopic),
+    opps: opps.length,
+  });
+  const family = families[(hash(seed + 'cf') % Math.min(2, families.length) + variant) % families.length]!;
+  const cta = pick(CTAS[family], seed, `z${style}`);
+  const shortCta = pick(SHORT_CTAS[family], seed, `q${style}`);
+  const nombreCorto = me.split(' ')[0];
 
   if (!lead) {
     // Sin oportunidades confirmadas: no se inventa nada.
@@ -228,9 +306,10 @@ function buildOnce(i: MessageInput, seller: Seller, report: OpportunityReport, s
       primerContactoMedio: [saludo, `${presentacion} Estuve viendo ${name} y lo tienen bien armado, así que no te voy a inventar problemas.`, '¿Te puedo dejar mi contacto para más adelante?'].join('\n\n'),
       primerContactoCorto: `${saludo} ${presentacion} Estuve viendo ${name} y lo tienen bien armado. ¿Te puedo dejar mi contacto para más adelante?`,
       instagram: `¡Hola! Soy ${me.split(' ')[0]}, trabajo con la presencia online de negocios de la zona. Vi el perfil de ${name} y está muy bien. ¿Les puedo dejar mi contacto para más adelante?`,
+      telefono: `Hola, ¿cómo va? Soy ${me}. Trabajo ayudando a comercios de la zona con su presencia online y estuve viendo ${name}: lo tienen bien armado. Quería dejarles mi contacto por si en algún momento quieren sumar algo. ¿Con quién podría hablar?`,
       seguimiento: `${pick(['Hola, ¿cómo va?', 'Buenas, ¿qué tal?'], seed, 'f')} Te había escrito por ${name}. Si en algún momento lo necesitan, avisame; y si no, no pasa nada: no te escribo más.`,
     };
-    return { messages, selected: [], style: 'observacion', checks: reviewMessage(messages.primerContacto, 'completo', { name, rubro: p, honest: true }) };
+    return { messages, selected: [], style: 'observacion', cta: 'consultivo', checks: reviewMessage(messages.primerContacto, 'completo', { name, rubro: p, honest: true }) };
   }
 
   const obs = (o: Opportunity) => cap(o.observation);
@@ -280,14 +359,16 @@ function buildOnce(i: MessageInput, seller: Seller, report: OpportunityReport, s
   if (wordCount(primerContacto) > 150) primerContacto = assemble([saludo, presentacion, opening, hook, main, linkLine, cta]);
   if (wordCount(primerContacto) > 150) primerContacto = assemble([saludo, presentacion, opening, main, cta]);
   const primerContactoMedio = assemble([`${saludo} ${presentacion}`, `${opening} ${cap(lowerFirst(lead.observation))}. ${lead.consequence}`, cta]);
-  const primerContactoCorto = `${saludo} Soy ${me}${quien}. Estuve viendo ${name} y vi que ${lowerFirst(lead.short)}. ${lead.consequence} ${pick(['¿Te mando un video de un minuto con lo que encontré?', '¿Querés que te lo muestre en un audio corto?'], seed, 'q')}`;
-  const instagram = `¡Hola! Soy ${me.split(' ')[0]}, trabajo con la presencia online de negocios de la zona. Vi el perfil de ${name} y noté que ${lowerFirst(lead.short)}. ${pick(['¿Les mando un video de un minuto con lo que encontré?', '¿Les puedo mostrar en un video corto lo que vi?'], seed, 'i')}`;
+  const primerContactoCorto = `${saludo} Soy ${me}${quien}. Estuve viendo ${name} y vi que ${lowerFirst(lead.short)}. ${lead.consequence} ${shortCta}`;
+  const instagram = `¡Hola! Soy ${nombreCorto}, trabajo con la presencia online de negocios de la zona. Vi el perfil de ${name} y noté que ${lowerFirst(lead.short)}. ${shortCta}`;
+  // Guion para llamar: breve, sin leer un texto largo, y pidiendo hablar con quien decide.
+  const telefono = `Hola, ¿cómo va? Soy ${me}. Estuve revisando ${name} porque trabajo ayudando a comercios a mejorar su presencia online, y encontré ${opps.length > 1 ? 'un par de cosas' : 'algo puntual'} que ${opps.length > 1 ? 'podrían estar haciendo' : 'podría estar haciendo'} que pierdan consultas: por ejemplo, ${lowerFirst(lead.short)}. ¿Con quién podría hablar sobre eso?`;
   const seguimiento = assemble([
     `${pick(['Hola, ¿cómo va?', 'Buenas, ¿qué tal?', 'Hola de nuevo, ¿cómo andan?'], seed, 'f')} Te había escrito por ${name}. Lo resumo en una línea: ${lowerFirst(lead.short)}. ${lead.consequence}`,
-    'Si te interesa, te mando el video cuando quieras; y si no es el momento, no pasa nada: avisame y no te escribo más.',
+    'Si te interesa, lo charlamos cuando te quede cómodo; y si no es el momento, no pasa nada: avisame y no te escribo más.',
   ]);
 
-  const messages: ProspectMessages = { primerContacto, primerContactoMedio, primerContactoCorto, instagram, seguimiento };
+  const messages: ProspectMessages = { primerContacto, primerContactoMedio, primerContactoCorto, instagram, telefono, seguimiento };
   const checks = [
     ...reviewMessage(primerContacto, 'completo', { name, rubro: p }),
     ...reviewMessage(primerContactoMedio, 'medio', { name, rubro: p }).map((c) => ({ ...c, label: `Mediano: ${c.label}` })),
@@ -295,7 +376,7 @@ function buildOnce(i: MessageInput, seller: Seller, report: OpportunityReport, s
     ...reviewMessage(instagram, 'instagram', { name, rubro: p }).map((c) => ({ ...c, label: `Instagram: ${c.label}` })),
   ];
   const selected = [lead, ...(style === 'directo' && second ? [second] : rest.slice(0, 2))];
-  return { messages, selected, style, lead, checks };
+  return { messages, selected, style, lead, checks, cta: family };
 }
 
 /** Rubro del input: el que trae, o el detectado con la categoría y el nombre (si hay confianza suficiente). */
@@ -338,7 +419,7 @@ function compose(i: MessageInput, seller: Seller, variant: number): Built {
   // Control de calidad: si una combinación no pasa, se prueba la siguiente (se rearma el mensaje).
   for (let k = 0; k < combos.length; k++) {
     const [style, lead] = combos[(v + k) % combos.length]!;
-    const built = buildOnce(input, seller, report, style, lead, `${i.seed}#${v}`);
+    const built = buildOnce(input, seller, report, style, lead, `${i.seed}#${v}`, v);
     if (passes(built.checks)) return built;
     if (!best || built.checks.filter((c) => c.ok).length > best.checks.filter((c) => c.ok).length) best = built;
   }
@@ -363,7 +444,7 @@ export function composeInsight(i: MessageInput, seller: Seller, variant = 0): Me
   const b = compose(i, seller, variant);
   const rubro = rubroOf(i);
   if (!b.lead) {
-    return { motivo: 'Sin oportunidades confirmadas', oportunidad: 'No se detectaron oportunidades confirmadas: el mensaje no inventa ninguna.', dolor: '—', beneficio: 'Dejar el contacto para más adelante.', rubro: rubro.label, estilo: STYLE_LABEL[b.style], fuente: '—', evidencia: '—', calidad: b.checks };
+    return { motivo: 'Sin oportunidades confirmadas', oportunidad: 'No se detectaron oportunidades confirmadas: el mensaje no inventa ninguna.', dolor: '—', beneficio: 'Dejar el contacto para más adelante.', rubro: rubro.label, estilo: STYLE_LABEL[b.style], fuente: '—', evidencia: '—', cta: CTA_LABEL[b.cta], calidad: b.checks };
   }
   return {
     motivo: `${b.lead.area}: ${b.lead.title}`,
@@ -374,11 +455,12 @@ export function composeInsight(i: MessageInput, seller: Seller, variant = 0): Me
     estilo: STYLE_LABEL[b.style],
     fuente: b.lead.source,
     evidencia: b.lead.evidence,
+    cta: CTA_LABEL[b.cta],
     calidad: b.checks,
   };
 }
 
-export const MESSAGE_KEYS = ['primerContacto', 'primerContactoMedio', 'primerContactoCorto', 'instagram', 'seguimiento'] as const;
+export const MESSAGE_KEYS = ['primerContacto', 'primerContactoMedio', 'primerContactoCorto', 'instagram', 'telefono', 'seguimiento'] as const;
 export type MessageKey = (typeof MESSAGE_KEYS)[number];
 
 type StoredProspect = {
