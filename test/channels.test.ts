@@ -292,3 +292,24 @@ test('los tests no tocan data/prospeccion.db ni precios.json', () => {
   });
   assert.ok(true);
 });
+
+test('botón de WhatsApp: abre directo el chat del negocio, también con teléfonos argentinos sin +54', async () => {
+  const { waPhone, waChatUrl, waLink: uiWaLink } = (await import('../web/assets/js/ui.js')) as {
+    waPhone: (p: string) => string; waChatUrl: (n: string, t: string, m?: string) => string; waLink: (p: string, t: string) => string;
+  };
+  assert.equal(waPhone('0341 15-555-0000'), '5493415550000', 'celular: 54 + 9, sin 0 ni 15');
+  assert.equal(waPhone('011 15 2345-6789'), '5491123456789');
+  assert.equal(waPhone('+54 9 341 555-0000'), '5493415550000');
+  assert.equal(waPhone('0341 456-7890'), '543414567890', 'fijo (WhatsApp Business)');
+  assert.equal(waPhone('+54 341 456-7890'), '543414567890');
+  assert.equal(waPhone('+1 415 555 0101'), '14155550101');
+  assert.equal(waPhone('123'), '');
+  const text = 'Hola & chau\n¿sí? 100%';
+  const web = new URL(waChatUrl('5493415550000', text, 'web'));
+  assert.equal(web.origin + web.pathname, 'https://web.whatsapp.com/send', 'en la compu va directo al chat, sin la página intermedia');
+  assert.equal(web.searchParams.get('phone'), '5493415550000');
+  assert.equal(web.searchParams.get('text'), text);
+  assert.equal(waChatUrl('5493415550000', 'Hola', 'app'), 'whatsapp://send?phone=5493415550000&text=Hola');
+  assert.equal(waChatUrl('5493415550000', 'Hola', 'mobile'), 'https://wa.me/5493415550000?text=Hola');
+  assert.equal(uiWaLink('0341 15-555-0000', 'Hola'), 'https://wa.me/5493415550000?text=Hola', 'antes se abría sin destinatario');
+});

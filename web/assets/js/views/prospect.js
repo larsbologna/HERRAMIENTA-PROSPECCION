@@ -1,7 +1,7 @@
 import { api } from '../api.js';
 import {
   $, $$, IMP, autoGrow, confirmDialog, modal, copyText, date, dateTime, esc, icon, money, moneyShort, number, scoreClass,
-  statusLabel, statusOptions, toast, waLink,
+  statusLabel, statusOptions, toast, waChatUrl, waPhone, isTouchDevice,
 } from '../ui.js';
 
 function ring(score) {
@@ -218,6 +218,18 @@ function valueCard(p) {
 
 /** Número de WhatsApp CONFIRMADO (de un enlace de WhatsApp o del contacto de Instagram). */
 const confirmedWa = (p) => p.analysis?.channels?.whatsappNumber;
+/** Número al que se abre el chat: el WhatsApp confirmado o, si no hay, el teléfono de Google. */
+const chatNumber = (p) => confirmedWa(p) || waPhone(p.phone);
+/** En la computadora: abrir en WhatsApp Web (por defecto) o en la app de escritorio. Se recuerda por navegador. */
+const WA_MODE_KEY = 'waMode';
+function waMode() {
+  if (isTouchDevice()) return 'mobile';
+  try {
+    return localStorage.getItem(WA_MODE_KEY) === 'app' ? 'app' : 'web';
+  } catch {
+    return 'web';
+  }
+}
 const igUrl = (p) => p.analysis?.channels?.instagramUrl;
 
 function selectionHtml(sel) {
@@ -227,6 +239,7 @@ function selectionHtml(sel) {
 
 function messagesCard(p) {
   const wa = confirmedWa(p);
+  const num = chatNumber(p);
   const ig = igUrl(p);
   return `<section class="card" id="mensajes">
     <div class="card-head"><h2>Mensaje de contacto</h2>
@@ -240,14 +253,18 @@ function messagesCard(p) {
     <textarea class="textarea wa-text" id="msg" aria-label="Mensaje de contacto (editable)"></textarea>
     <p class="faint msg-hint" id="msg-hint">Podés editarlo antes de enviarlo. Si no te gusta, tocá "Otra versión".</p>
     <div class="btn-row contact-row">
-      <a class="btn btn-sm ${wa ? 'btn-wa' : ''}" id="wa" target="_blank" rel="noopener">${icon(wa ? 'message' : 'external')}${wa ? 'Contactar por WhatsApp' : 'Abrir WhatsApp'}</a>
+      <a class="btn btn-sm ${num ? 'btn-wa' : ''}" id="wa" rel="noopener">${icon(num ? 'message' : 'external')}${num ? 'Contactar por WhatsApp' : 'Abrir WhatsApp'}</a>
+      ${isTouchDevice() ? '' : `<select class="select select-sm" id="wa-mode" aria-label="Abrir WhatsApp en" title="Dónde se abre el chat">
+        <option value="web"${waMode() === 'web' ? ' selected' : ''}>WhatsApp Web</option>
+        <option value="app"${waMode() === 'app' ? ' selected' : ''}>App de escritorio</option></select>`}
       ${ig ? `<a class="btn btn-sm" id="ig" href="${esc(ig)}" target="_blank" rel="noopener">${icon('external')}Abrir Instagram</a>` : ''}
       <button class="btn btn-sm" id="copy">${icon('copy')}Copiar mensaje</button>
       <button class="btn btn-sm btn-primary" id="sent">${icon('check')}Registrar envío</button>
     </div>
     ${wa
       ? `<p class="faint contact-note">WhatsApp +${esc(wa)}, encontrado en ${esc(p.analysis.channels.whatsappSource ?? 'sus canales')}. Se abre con el mensaje cargado: no se envía solo.</p>`
-      : p.phone && !/^(\+|00)/.test(p.phone.trim()) ? '<p class="faint contact-note">No se encontró un WhatsApp confirmado y el teléfono de Google no tiene prefijo internacional: WhatsApp se abre sin destinatario.</p>' : ''}
+      : num ? `<p class="faint contact-note">Se abre el chat con +${esc(num)} (teléfono de Google, no se confirmó que tenga WhatsApp) con el mensaje cargado: no se envía solo.</p>`
+      : '<p class="faint contact-note">No hay WhatsApp ni teléfono del negocio: WhatsApp se abre para que elijas el contacto.</p>'}
     ${ig ? '<p class="faint contact-note">Instagram: abrí el perfil y pegá el mensaje en un mensaje directo ("Copiar mensaje").</p>' : ''}
   </section>`;
 }
@@ -367,10 +384,14 @@ export async function render(main, { id }, ctx) {
     setWaHref(ta.value);
     for (const b of $$('[data-msg]', main)) b.classList.toggle('on', b.dataset.msg === msgKey);
   };
-  // WhatsApp confirmado → wa.me/NÚMERO con el mensaje de ESTE prospecto; si no, el comportamiento de siempre.
+  // Abre directo el chat del negocio (WhatsApp confirmado o teléfono de Google) con el mensaje de ESTE prospecto.
   const setWaHref = (text) => {
-    const wa = confirmedWa(p);
-    $('#wa', main).href = wa ? `https://wa.me/${wa}?text=${encodeURIComponent(text)}` : waLink(p.phone, text);
+    const a = $('#wa', main);
+    const mode = waMode();
+    a.href = waChatUrl(chatNumber(p), text, mode);
+    // WhatsApp Web siempre en la misma pestaña (no permite abrirse en dos); la app no necesita pestaña.
+    if (mode === 'app') a.removeAttribute('target');
+    else a.target = mode === 'web' ? 'whatsapp' : '_blank';
   };
 
   let notesTimer;
@@ -459,6 +480,11 @@ export async function render(main, { id }, ctx) {
     // Mensajes
     for (const b of $$('[data-msg]', main)) b.onclick = () => { msgKey = b.dataset.msg; showMessage(); };
     $('#msg', main).oninput = (e) => { edited = true; autoGrow(e.target); setWaHref(e.target.value); };
+    const modeSel = $('#wa-mode', main);
+    if (modeSel) modeSel.onchange = () => {
+      try { localStorage.setItem(WA_MODE_KEY, modeSel.value); } catch { /* sin almacenamiento: vale para esta vista */ }
+      setWaHref($('#msg', main).value);
+    };
     $('#regen', main).onclick = async () => {
       if (edited && !(await confirmDialog('Generar otra versión', 'Vas a perder los cambios que hiciste a mano en este mensaje.', 'Generar otra'))) return;
       const btn = $('#regen', main);
