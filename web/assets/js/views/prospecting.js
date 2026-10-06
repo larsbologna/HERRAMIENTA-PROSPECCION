@@ -140,7 +140,8 @@ export async function render(main, _params, ctx) {
         <div class="card-head"><h2>Próximos contactos</h2></div>
         <div id="next-list"></div>
       </section>
-    </div>`;
+    </div>
+    <p class="faint gen-footlink"><a href="/generador" data-link>Lista completa de negocios encontrados</a> · para reintentar el análisis de alguno que falló.</p>`;
 
   const form = $('#pros-form', main);
   const toggleOther = (sel, labelId) => { $(labelId, main).classList.toggle('hidden', !sel.value.startsWith('__')); };

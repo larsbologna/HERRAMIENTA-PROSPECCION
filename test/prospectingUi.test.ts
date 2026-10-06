@@ -78,6 +78,8 @@ for (const [w, h] of [[1366, 768], [390, 844]] as const) {
     assert.match(await page.textContent('.camp-stats') ?? '', /6\s*encontrados[\s\S]*6\s*analizados/);
     await page.waitForSelector('.pros-row');
     assert.equal(await page.locator('.pros-row').count(), 6);
+    assert.equal(await page.locator('#nav a[href="/generador"]').count(), 0, 'el Generador no está en el menú');
+    assert.equal(await page.getAttribute('.gen-footlink a', 'href'), '/generador', 'se llega desde Prospección');
     assert.deepEqual(await page.evaluate(NO_OVERFLOW), [], `prospección ${w}`);
     if (process.env.LAYOUT_SHOTS) await page.screenshot({ path: `${process.env.LAYOUT_SHOTS}/prospeccion-${w}.png`, fullPage: true });
 

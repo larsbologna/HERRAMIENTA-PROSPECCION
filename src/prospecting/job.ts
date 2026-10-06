@@ -214,7 +214,7 @@ export class ProspectingJobs {
     if (job.found < req.cantidad && !result.timedOut) parts.push(`No hay suficientes negocios nuevos para completar ${req.cantidad} sin repetir.`);
     if (result.timedOut) parts.push('La búsqueda llegó al tiempo máximo: podés volver a buscar para seguir.');
     if (job.duplicates) parts.push(`${job.duplicates} resultaron duplicados de negocios que ya tenías (no se repiten).`);
-    if (job.failed) parts.push(`${job.failed} no se pudieron analizar (quedan en el Generador para reintentar).`);
+    if (job.failed) parts.push(`${job.failed} no se pudieron analizar (podés reintentarlos desde "Lista completa de negocios encontrados", al pie de esta pantalla).`);
     if (result.stats.outOfRubro) parts.push(`Se descartaron ${result.stats.outOfRubro} de otro rubro.`);
     job.result = parts.join(' ');
     job.message = job.result;

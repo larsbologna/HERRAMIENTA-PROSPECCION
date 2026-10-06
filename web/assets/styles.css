@@ -717,3 +717,4 @@ tr.svc-off td { opacity: .55; }
 .rq-pick { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
 .rq-pick .btn { height: auto; min-height: 36px; white-space: normal; text-align: left; }
 @media (max-width: 640px) { #rq-next { margin-left: 0; } .rq-result .rq-big { flex: 1 1 100%; } .rq-title { order: -1; flex: 1 1 100%; } }
+.gen-footlink { font-size: 12.5px; margin: 14px 2px 0; }

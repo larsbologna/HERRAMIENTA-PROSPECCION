@@ -17,7 +17,8 @@ const NAV = [
   { path: '/', label: 'Dashboard', icon: 'dashboard', view: dashboard },
   { path: '/prospeccion', label: 'Prospección', icon: 'target', view: prospecting },
   { path: '/prospectos', label: 'Prospectos', vendedorLabel: 'Mis prospectos', icon: 'users', view: prospects },
-  { path: '/generador', label: 'Generador', icon: 'zap', view: generator },
+  // Fuera del menú: la Prospección ya busca y analiza sola. Se entra desde Prospección (reintentar análisis fallidos).
+  { path: '/generador', label: 'Generador', icon: 'zap', view: generator, hidden: true },
   { path: '/pipeline', label: 'Pipeline', icon: 'kanban', view: pipeline },
   { path: '/auditorias', label: 'Auditorías', icon: 'audit', view: audits, roles: ['admin'] },
   { path: '/metricas', label: 'Métricas', icon: 'chart', view: metrics, roles: ['admin'] },
@@ -67,10 +68,10 @@ export function navigate(path, { replace = false } = {}) {
 }
 
 function refreshNav() {
-  $('#nav').innerHTML = NAV.filter(allowed).map(
+  $('#nav').innerHTML = NAV.filter((n) => allowed(n) && !n.hidden).map(
     (n) => `<a href="${n.path}" data-link>${icon(n.icon)}<span>${ctx.isAdmin ? n.label : n.vendedorLabel ?? n.label}</span></a>`,
   ).join('');
-  const current = route(location.pathname).nav;
+  const current = route(location.pathname).nav === '/generador' ? '/prospeccion' : route(location.pathname).nav;
   for (const a of document.querySelectorAll('#nav a')) a.classList.toggle('active', a.getAttribute('href') === current);
   const u = ctx.user;
   const initials = u.name.split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
