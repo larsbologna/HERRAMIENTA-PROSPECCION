@@ -29,7 +29,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
     console.error(`\n  No se pudo abrir la base de datos (${DB_FILE}).\n  ${(err as Error).message}\n`);
     process.exit(1);
   }
-  const server = createApp({ repo: stores.crm, users: stores.users, generator: stores.generator });
+  const server = createApp({ repo: stores.crm, users: stores.users, generator: stores.generator, prospecting: stores.prospecting });
   server.on('error', (err: NodeJS.ErrnoException) => {
     if (err.code === 'EADDRINUSE') {
       console.log(`La herramienta ya está abierta en ${localUrl}`);

@@ -13,6 +13,7 @@ import type { BusinessProfile } from '../src/domain/types.js';
 import { keysFor, SeenIndex } from '../src/generator/dedupe.js';
 import type { GeneratedCandidate, generateProspects } from '../src/generator/generator.js';
 import { GeneratorRepository } from '../src/generator/repository.js';
+import { ProspectingRepository } from '../src/prospecting/repository.js';
 import { opportunityScore } from '../src/generator/score.js';
 import { loadPriceList } from '../src/proposal/budget.js';
 
@@ -70,21 +71,24 @@ export const fakeGenerate = (async (req, deps) => {
   return { items, exhausted, timedOut: false, message, stats: { scanned: 3, opened: 3, duplicates: 3 - items.length, outOfZone: 0, closed: 0, errors: 0, queries: ['q'] } };
 }) as typeof generateProspects;
 
-export async function startApp(security: AppDeps['security'] = {}) {
-  const webDir = mkdtempSync(path.join(os.tmpdir(), 'web-'));
-  writeFileSync(path.join(webDir, 'index.html'), '<h1>App</h1>');
-  mkdirSync(path.join(webDir, 'assets'));
-  writeFileSync(path.join(webDir, 'assets', 'app.js'), 'console.log(1)');
+export async function startApp(security: AppDeps['security'] = {}, overrides: Partial<AppDeps> = {}, opts: { webDir?: string } = {}) {
+  const webDir = opts.webDir ?? mkdtempSync(path.join(os.tmpdir(), 'web-'));
+  if (!opts.webDir) {
+    writeFileSync(path.join(webDir, 'index.html'), '<h1>App</h1>');
+    mkdirSync(path.join(webDir, 'assets'));
+    writeFileSync(path.join(webDir, 'assets', 'app.js'), 'console.log(1)');
+  }
   const db = openDatabase(':memory:');
   // Precios en memoria: los tests nunca escriben el precios.json real.
   let prices = loadPriceList();
   const repo = new CrmRepository(db, () => prices, (p) => { prices = p; });
   const users = new UserRepository(db);
   const generator = new GeneratorRepository(db);
-  const server = createApp({ repo, users, generator, generate: fakeGenerate, analyze: fakeAnalyze, reverify: fakeReverify, webDir, log: () => {}, security }).listen(0, '127.0.0.1');
+  const prospecting = new ProspectingRepository(db);
+  const server = createApp({ repo, users, generator, prospecting, generate: fakeGenerate, analyze: fakeAnalyze, reverify: fakeReverify, webDir, log: () => {}, security, ...overrides }).listen(0, '127.0.0.1');
   await new Promise((r) => server.once('listening', r));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-  return { base, repo, users, generator, webDir, close: () => server.close() };
+  return { base, db, repo, users, generator, prospecting, webDir, close: () => server.close() };
 }
 
 /** Cliente HTTP con cookie de sesión (como un navegador). */

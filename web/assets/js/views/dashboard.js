@@ -62,7 +62,7 @@ export async function render(main, _params, ctx) {
       : `
     <div class="grid grid-4">
       ${kpi('Prospectos analizados', number(k.analyzed), '', 'audit')}
-      ${kpi('Sin contactar', number(k.notContacted), share(k.notContacted), 'clock')}
+      ${kpi('No contactados', number(k.notContacted), share(k.notContacted), 'clock')}
       ${kpi('Contactados', number(k.contacted), share(k.contacted), 'send')}
       ${kpi('Respondieron', number(k.responded), k.contacted ? `${pct((k.responded / k.contacted) * 100)} de los contactados` : '', 'message')}
       ${kpi('Reuniones agendadas', number(k.meetings), '', 'calendar')}
@@ -80,7 +80,7 @@ export async function render(main, _params, ctx) {
 
     <div class="grid grid-2" style="margin-top:16px">
       <div class="card">
-        <div class="card-head"><h2>Para contactar primero</h2><span class="sub">Sin contactar · mayor potencial</span></div>
+        <div class="card-head"><h2>Para contactar primero</h2><span class="sub">No contactados · mayor potencial</span></div>
         <div class="mini-list">${d.hot.length ? d.hot.map((p) => `
           <a class="mini-item" href="/prospectos/${encodeURIComponent(p.id)}" data-link>
             <div><div class="t">${esc(p.name)}</div><div class="s">${esc(p.verticalLabel ?? '')} · ${p.highImpactCount} problema${p.highImpactCount === 1 ? '' : 's'} de impacto alto</div></div>

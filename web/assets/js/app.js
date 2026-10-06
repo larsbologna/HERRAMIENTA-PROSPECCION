@@ -8,11 +8,14 @@ import * as audits from './views/audits.js';
 import * as metrics from './views/metrics.js';
 import * as settings from './views/settings.js';
 import * as generator from './views/generator.js';
+import * as prospecting from './views/prospecting.js';
+import * as rapid from './views/rapid.js';
 import { renderLogin, renderSetup } from './views/auth.js';
 
 /** Secciones del menú. `roles` limita quién las ve (sin roles = todos). */
 const NAV = [
   { path: '/', label: 'Dashboard', icon: 'dashboard', view: dashboard },
+  { path: '/prospeccion', label: 'Prospección', icon: 'target', view: prospecting },
   { path: '/prospectos', label: 'Prospectos', vendedorLabel: 'Mis prospectos', icon: 'users', view: prospects },
   { path: '/generador', label: 'Generador', icon: 'zap', view: generator },
   { path: '/pipeline', label: 'Pipeline', icon: 'kanban', view: pipeline },
@@ -28,6 +31,7 @@ let renderToken = 0;
 const allowed = (item) => !item.roles || item.roles.includes(ctx.user?.role);
 
 function route(pathname) {
+  if (pathname === '/prospeccion/rapida') return { view: rapid, params: {}, nav: '/prospeccion' };
   const m = pathname.match(/^\/prospectos\/([^/]+)$/);
   if (m) return { view: prospect, params: { id: decodeURIComponent(m[1]) }, nav: '/prospectos' };
   const item = NAV.find((n) => n.path === pathname);

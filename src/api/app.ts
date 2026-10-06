@@ -14,6 +14,12 @@ import { buildMessages, buildSelection, MESSAGE_KEYS, type MessageKey } from '..
 import { generateProspects as defaultGenerate, MAX_CANTIDAD } from '../generator/generator.js';
 import { GENERATOR_STATUSES, type GeneratorRepository } from '../generator/repository.js';
 import { catalogFrom } from '../proposal/catalog.js';
+import { channelOf } from '../channels/crossCheck.js';
+import { isVerified } from '../domain/reliability.js';
+import { ProspectingJobs, type JobState } from '../prospecting/job.js';
+import { opportunityProfile } from '../prospecting/opportunities.js';
+import type { ProspectingRepository } from '../prospecting/repository.js';
+import { RUBROS, rubroKey, zonaKey } from '../prospecting/rubros.js';
 import { SERVICE_CATALOG } from '../proposal/services.js';
 import {
   HttpError,
@@ -43,6 +49,8 @@ export interface AppDeps {
   generator?: GeneratorRepository;
   /** Función de generación (se sustituye en tests para usar fichas simuladas). */
   generate?: typeof defaultGenerate;
+  /** Campañas de la prospección automática. Sin ellas, sus rutas responden 503. */
+  prospecting?: ProspectingRepository;
   /** Sobrescribe opciones de proxy/seguridad (tests). */
   security?: Partial<Pick<typeof config, 'trustProxy' | 'publicUrl' | 'cookieSecure' | 'setupToken'>>;
 }
@@ -91,6 +99,20 @@ export function createApp(deps: AppDeps): http.Server {
   let busy: { userName: string } | null = null;
   let generating: { userName: string } | null = null;
   const runGenerate = deps.generate ?? defaultGenerate;
+  // Búsqueda automática (buscar → analizar → guardar) en segundo plano, de a un negocio por vez.
+  const jobs = deps.generator && deps.prospecting
+    ? new ProspectingJobs({ crm: repo, generator: deps.generator, prospecting: deps.prospecting, generate: runGenerate, analyze: runAnalysis, log })
+    : undefined;
+  /** Un solo trabajo pesado (Chromium) a la vez: análisis, generador o prospección automática. */
+  const ensureIdle = () => {
+    if (busy) throw new HttpError(409, `Ya hay un análisis en curso (${busy.userName}). Esperá a que termine.`);
+    if (generating) throw new HttpError(409, `Ya hay una generación en curso (${generating.userName}). Esperá a que termine.`);
+    if (jobs?.isRunning()) throw new HttpError(409, `Ya hay una búsqueda de prospectos en curso (${jobs.current()!.userName}). Esperá a que termine.`);
+  };
+  const needProspecting = () => {
+    if (!jobs || !deps.prospecting) throw new HttpError(503, 'La prospección automática no está disponible.');
+    return { jobs, prospecting: deps.prospecting };
+  };
 
   const isAdmin = (u: User) => u.role === 'admin';
   const secureCookie = (req: http.IncomingMessage) => (sec.cookieSecure === 'true' ? true : sec.cookieSecure === 'false' ? false : isHttps(req, sec.trustProxy));
@@ -124,6 +146,40 @@ export function createApp(deps: AppDeps): http.Server {
     const detail = repo.get(id);
     const seller = sellerFor(u);
     return { ...detail, messages: buildMessages(detail, seller), messageSelection: buildSelection(detail, seller) };
+  };
+
+  /** La búsqueda en curso la ve quien la inició (y un administrador). */
+  const visibleJob = (u: User, j: JobState | undefined) => (j && (isAdmin(u) || j.userId === u.id) ? j : null);
+
+  /** Datos del Modo Prospección Rápida: lo justo para decidir y contactar, sin el análisis completo. */
+  const quickCard = (u: User, id: string) => {
+    const d = repo.get(id);
+    const a = d.analysis;
+    const ch = a?.channels;
+    const q = a?.profile?.dataQuality;
+    const chan = (cid: Parameters<typeof channelOf>[1]) => {
+      const c = channelOf(ch, cid);
+      return c ? { status: c.status, url: c.url ?? null, detail: c.detail ?? null, sources: c.sources } : null;
+    };
+    const seller = sellerFor(u);
+    const ownWeb = channelOf(ch, 'web')?.status === 'encontrado' ? channelOf(ch, 'web')?.url : d.website && !/instagram|facebook|wa\.me|linktr/i.test(d.website) ? d.website : null;
+    return {
+      id: d.id, name: d.name, category: d.category, address: d.address, phone: d.phone, mapsUrl: d.mapsUrl,
+      rating: d.rating, reviewCount: d.reviewCount, status: d.status, notes: d.notes,
+      campaignId: d.campaignId, campaignLabel: d.campaignLabel, potentialLevel: d.potentialLevel, potentialReason: d.potentialReason,
+      nextFollowupAt: d.nextFollowupAt, analyzedAt: d.analyzedAt,
+      verified: a?.profile ? {
+        rating: d.rating !== null && isVerified(q, 'rating'), reviewCount: d.reviewCount !== null && isVerified(q, 'reviewCount'),
+        phone: !!d.phone && isVerified(q, 'phone'), hours: isVerified(q, 'hours'), website: isVerified(q, 'website'),
+      } : null,
+      channels: ch ? { instagram: chan('instagram'), web: chan('web'), whatsapp: chan('whatsapp'), reservas: chan('reservas'), review: ch.review } : null,
+      whatsappNumber: ch?.whatsappNumber ?? null,
+      whatsappSource: ch?.whatsappSource ?? null,
+      instagramUrl: ch?.instagramUrl ?? null,
+      websiteUrl: ownWeb ?? null,
+      opportunities: a?.proposal ? opportunityProfile(a) : null,
+      messages: buildMessages(d, seller),
+    };
   };
 
   const router = new Router()
@@ -204,6 +260,7 @@ export function createApp(deps: AppDeps): http.Server {
     // ================================================================ análisis
     .on('POST', '/api/analizar', async ({ req, res, user }) => {
       if (busy) throw new HttpError(409, `Ya hay un análisis en curso (${busy.userName}). Esperá a que termine.`);
+      ensureIdle();
       const body = await readJson<{ url?: unknown }>(req);
       const target = String(body.url ?? '').trim();
       if (!target) throw new HttpError(400, 'Pegá el enlace de Google Maps del negocio.');
@@ -254,6 +311,7 @@ export function createApp(deps: AppDeps): http.Server {
     .on('POST', '/api/generador/generar', async ({ req, res, user }) => {
       const gen = needGenerator();
       if (generating) throw new HttpError(409, `Ya hay una generación en curso (${generating.userName}). Esperá a que termine.`);
+      ensureIdle();
       const body = await readJson<{ rubro?: unknown; zona?: unknown; cantidad?: unknown }>(req);
       const rubro = String(body.rubro ?? '').trim().replace(/\s+/g, ' ');
       const zona = String(body.zona ?? '').trim().replace(/\s+/g, ' ');
@@ -325,6 +383,99 @@ export function createApp(deps: AppDeps): http.Server {
       return { item: gen.linkProspect(params.id!, prospectId) };
     })
 
+    // ================================================================ prospección automática
+    // Pantalla principal: rubros, zonas, campañas con su resumen y la búsqueda en curso.
+    .on('GET', '/api/prospeccion', ({ user }) => {
+      const { jobs: j, prospecting } = needProspecting();
+      const scope = isAdmin(user) ? undefined : user.id;
+      const campaigns = prospecting.list()
+        .map((c) => ({ ...c, summary: prospecting.summary(c.id, scope) }))
+        .filter((c) => c.summary.analyzed > 0 || c.summary.found > 0 || isAdmin(user));
+      return {
+        rubros: RUBROS.map((r) => r.label),
+        zonas: [...new Set(['Quilmes', 'Berazategui', 'Bernal', ...prospecting.zonas()])],
+        maxCantidad: MAX_CANTIDAD,
+        campaigns,
+        job: visibleJob(user, j.current()),
+      };
+    })
+    .on('POST', '/api/prospeccion/buscar', async ({ req, user }) => {
+      const { jobs: j } = needProspecting();
+      const body = await readJson<{ rubro?: unknown; zona?: unknown; cantidad?: unknown }>(req);
+      const rubro = String(body.rubro ?? '').trim().replace(/\s+/g, ' ');
+      const zona = String(body.zona ?? '').trim().replace(/\s+/g, ' ');
+      const cantidad = Number(body.cantidad);
+      if (!rubro || rubro.length > 80) throw new HttpError(400, 'Elegí el rubro (ej.: Barberías).');
+      if (!zona || zona.length > 80) throw new HttpError(400, 'Elegí la zona (ej.: Quilmes).');
+      if (!Number.isInteger(cantidad) || cantidad < 1 || cantidad > MAX_CANTIDAD) throw new HttpError(400, `La cantidad tiene que ser entre 1 y ${MAX_CANTIDAD}.`);
+      ensureIdle();
+      log(`→ ${user.username} prospección: ${cantidad} × "${rubro}" en ${zona}`);
+      return { job: j.start({ rubro, zona, cantidad, user: { id: user.id, name: user.name } }) };
+    })
+    .on('GET', '/api/prospeccion/trabajo', ({ user }) => ({ job: visibleJob(user, needProspecting().jobs.current()) }))
+    .on('POST', '/api/prospeccion/trabajo/cancelar', ({ user }) => {
+      const { jobs: j } = needProspecting();
+      const cur = j.current();
+      if (cur && (isAdmin(user) || cur.userId === user.id)) j.cancel();
+      return { ok: true };
+    })
+    // Listado liviano con filtros combinables: campaña, rubro, zona, estado, potencial.
+    .on('GET', '/api/prospeccion/prospectos', ({ query, user }) => {
+      needProspecting();
+      const estado = query.get('estado') || 'todos';
+      const potencial = query.get('potencial');
+      const items = repo.list({
+        campaignId: query.get('campana') || undefined,
+        rubro: query.get('rubro') ? rubroKey(query.get('rubro')!) : undefined,
+        zona: query.get('zona') ? zonaKey(query.get('zona')!) : undefined,
+        status: estado === 'pendientes' ? 'sin_contactar' : estado,
+        potential: potencial === 'alto' || potencial === 'medio' || potencial === 'bajo' ? potencial : undefined,
+        q: query.get('q') ?? undefined,
+        assignedTo: isAdmin(user) ? undefined : user.id,
+        sort: 'potentialLevel',
+        dir: 'asc',
+      });
+      return { items, total: items.length };
+    })
+    // Cola de "Siguiente prospecto": solo los NO contactados de la campaña / filtros.
+    .on('GET', '/api/prospeccion/cola', ({ query, user }) => {
+      const { prospecting } = needProspecting();
+      const potencial = query.get('potencial');
+      return {
+        items: prospecting.queue({
+          campaignId: query.get('campana') || undefined,
+          rubro: query.get('rubro') ? rubroKey(query.get('rubro')!) : undefined,
+          zona: query.get('zona') ? zonaKey(query.get('zona')!) : undefined,
+          potential: potencial === 'alto' || potencial === 'medio' || potencial === 'bajo' ? potencial : undefined,
+          userId: isAdmin(user) ? undefined : user.id,
+        }),
+      };
+    })
+    // Tarjeta del Modo Prospección Rápida: solo lo necesario para contactar (liviana).
+    .on('GET', '/api/prospeccion/ficha/:id', ({ params, user }) => {
+      ensureAccess(user, params.id!);
+      return quickCard(user, params.id!);
+    })
+    // Resultado del contacto: estado + (mensaje enviado | fecha para contactar después | nota).
+    .on('POST', '/api/prospeccion/:id/resultado', async ({ req, params, user }) => {
+      ensureAccess(user, params.id!);
+      const body = await readJson<{ estado?: unknown; fecha?: unknown; mensaje?: unknown; nota?: unknown }>(req);
+      const estado = String(body.estado ?? '');
+      if (!isStatus(estado)) throw new HttpError(400, 'Estado inválido.');
+      const nota = String(body.nota ?? '').trim();
+      const mensaje = String(body.mensaje ?? '').trim();
+      if (estado === 'contactar_despues') {
+        const fecha = String(body.fecha ?? '');
+        if (!fecha || Number.isNaN(Date.parse(fecha))) throw new HttpError(400, 'Elegí la fecha para volver a contactarlo.');
+        repo.addFollowup(params.id!, { dueAt: new Date(fecha).toISOString(), note: nota || 'Contactar después' }, user.id);
+      }
+      repo.update(params.id!, { status: estado }, user.id);
+      deps.generator?.syncFromCrm(params.id!, estado);
+      if (estado === 'contactado' && mensaje) repo.addActivity(params.id!, 'whatsapp', `Mensaje enviado (Prospección rápida):\n\n${mensaje.slice(0, 4500)}`, user.id);
+      else if (nota && estado !== 'contactar_despues') repo.addActivity(params.id!, 'nota', nota.slice(0, 4500), user.id);
+      return { ok: true, status: estado };
+    })
+
     // ================================================================ prospectos
     .on('GET', '/api/prospects', ({ query, user }) => {
       const num = (k: string) => (query.has(k) && query.get(k) !== '' ? Number(query.get(k)) : undefined);
@@ -352,6 +503,7 @@ export function createApp(deps: AppDeps): http.Server {
       if (busy) throw new HttpError(409, `Ya hay un análisis en curso (${busy.userName}). Esperá a que termine.`);
       const detail = repo.get(params.id!);
       if (!detail.analysis?.profile?.name) throw new HttpError(400, 'Este prospecto no tiene un análisis guardado: usá "Reanalizar".');
+      ensureIdle();
       busy = { userName: user.name };
       res.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no' });
       const line = (obj: unknown) => {
@@ -415,6 +567,7 @@ export function createApp(deps: AppDeps): http.Server {
         },
         user.id,
       );
+      if (body.status !== undefined) deps.generator?.syncFromCrm(params.id!, String(body.status));
       return detailFor(user, params.id!);
     })
     .on('DELETE', '/api/prospects/:id', ({ params }) => {

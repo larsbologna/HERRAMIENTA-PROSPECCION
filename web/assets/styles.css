@@ -575,7 +575,8 @@ table.table.dq { min-width: 640px; }
 }
 @media (max-width: 900px) {
   /* Barra superior móvil: el menú se desplaza si no entra; cuenta y cerrar sesión quedan siempre visibles. */
-  .sidebar { overflow: visible; }
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .sidebar { overflow: visible; min-width: 0; }
   .nav { flex: 1 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
   .nav::-webkit-scrollbar { display: none; }
   .nav a { padding: 8px; flex: none; }
@@ -645,3 +646,74 @@ tr.svc-off td { opacity: .55; }
 .dq-unverified li, .contact-note, .ch-main { overflow-wrap: anywhere; }
 .select-sm { width: auto; height: 30px; padding-top: 0; padding-bottom: 0; font-size: 13px; border-radius: 8px; }
 .wa-fallback:not([hidden]) { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0 0; font-size: 13px; }
+
+/* ---------- Prospección automática ---------- */
+.pros-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; align-items: end; }
+.pros-form .btn { height: 36px; }
+.pot { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: 999px; font-size: 11.5px; font-weight: 700; letter-spacing: .02em; white-space: nowrap; border: 1px solid var(--line-2); }
+.pot-alto { color: #FF9F5A; border-color: rgba(255, 159, 90, .45); background: rgba(255, 159, 90, .10); }
+.pot-medio { color: #FFC766; border-color: rgba(255, 199, 102, .4); background: rgba(255, 199, 102, .08); }
+.pot-bajo { color: var(--text-2); }
+.pot-none { color: var(--text-3); font-weight: 500; }
+.job { margin-top: 16px; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--r-lg); background: rgba(15, 15, 15, .35); }
+.job.running { border-color: rgba(93, 214, 44, .35); }
+.job-head { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.job .progress { margin-top: 10px; }
+.job .progress-text span { min-width: 0; overflow-wrap: anywhere; }
+.job-items { margin: 12px 0 0; padding: 0; list-style: none; display: grid; gap: 4px; max-height: 260px; overflow-y: auto; font-size: 13px; }
+.job-items li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.job-sym { width: 18px; text-align: center; font-weight: 700; }
+.job-ok, .camp-stats .ok, .ok { color: var(--green); }
+.job-run { color: #FFC766; }
+.job-err { color: #FF8A8E; }
+.job-name { min-width: 0; overflow-wrap: anywhere; }
+.job-detail { font-size: 12px; overflow-wrap: anywhere; }
+#camps { display: grid; gap: 10px; }
+.camp { padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--r-lg); background: rgba(248, 248, 248, .02); }
+.camp-head { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.camp-head h3 { margin: 0; font-size: 14px; letter-spacing: .02em; overflow-wrap: anywhere; }
+.camp-stats { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 8px; font-size: 13px; color: var(--text-2); }
+.camp-pot { font-size: 12.5px; color: var(--text-3); margin-top: 4px; }
+.pros-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; margin-top: 16px; align-items: start; }
+@media (max-width: 1100px) { .pros-grid { grid-template-columns: minmax(0, 1fr); } }
+.pros-list { display: grid; gap: 8px; }
+.pros-row { display: flex; justify-content: space-between; gap: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r); flex-wrap: wrap; }
+.pros-main { min-width: 0; flex: 1 1 280px; }
+.pros-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pros-name { font-weight: 650; color: var(--text); overflow-wrap: anywhere; }
+.pros-facts, .pros-reason { font-size: 12.5px; margin-top: 3px; overflow-wrap: anywhere; }
+.pros-side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.pros-side .btn-row { margin-top: 0; justify-content: flex-end; }
+.next-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; font-size: 13px; }
+.next-list li { display: grid; gap: 2px; padding-bottom: 8px; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.next-list li.overdue .num { color: #FF8A8E; }
+
+/* ---------- Modo Prospección Rápida ---------- */
+.rq { max-width: 860px; margin: 0 auto; }
+.rq-top { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+.rq-title { flex: 1; display: grid; min-width: 0; }
+.rq-title b { letter-spacing: .03em; overflow-wrap: break-word; }
+.rq-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
+.rq-name { margin: 0; font-size: 22px; overflow-wrap: anywhere; }
+.rq-reason { margin: 8px 0 0; color: var(--text-2); font-size: 13.5px; }
+.rq-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 8px; margin-top: 14px; }
+.rq-ch { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r); font-size: 13px; min-width: 0; overflow-wrap: anywhere; }
+.rq-review { margin: 12px 0 0; }
+.rq-review ul { margin: 4px 0 0; padding-left: 18px; font-size: 13px; }
+.rq-opp { margin-top: 14px; padding: 12px 14px; border-radius: var(--r); background: rgba(93, 214, 44, .06); border: 1px solid rgba(93, 214, 44, .25); }
+.rq-headline { display: block; font-size: 15px; margin-top: 2px; }
+.rq-opp ul { margin: 8px 0 0; padding-left: 18px; font-size: 13px; }
+.rq-has { font-size: 12.5px; margin-top: 6px; }
+.rq-msg { margin-top: 14px; }
+.rq-msg-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.rq-tabs { margin-bottom: 8px; width: auto; }
+.rq-contact .btn, .rq-result .btn { height: 38px; }
+.rq-note { font-size: 12px; margin: 8px 0 0; overflow-wrap: anywhere; }
+.rq-result { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+.rq-result .rq-big { min-width: 150px; justify-content: center; }
+#rq-next { margin-left: auto; }
+.rq-later { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; margin-top: 10px; }
+.rq-later-note { flex: 1 1 200px; }
+.rq-pick { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.rq-pick .btn { height: auto; min-height: 36px; white-space: normal; text-align: left; }
+@media (max-width: 640px) { #rq-next { margin-left: 0; } .rq-result .rq-big { flex: 1 1 100%; } .rq-title { order: -1; flex: 1 1 100%; } }

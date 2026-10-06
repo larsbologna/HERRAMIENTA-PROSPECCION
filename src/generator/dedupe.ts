@@ -67,6 +67,30 @@ export function streetKey(address: string | undefined): string | undefined {
   return m?.[1] && /[a-z]/.test(m[1]) ? m[1].trim() : undefined;
 }
 
+/** Palabras genéricas del rubro o de relleno: no distinguen a un negocio ("Barbería Los Primos" ≈ "Los Primos Barber Club"). */
+const GENERIC = new Set([
+  'barberia', 'barber', 'barbers', 'barbershop', 'barbería', 'club', 'peluqueria', 'peluqueros', 'peluquero', 'salon', 'studio', 'estudio', 'shop', 'store',
+  'gym', 'gimnasio', 'fitness', 'centro', 'resto', 'restaurante', 'restaurant', 'bar', 'cafe', 'cafeteria', 'kiosco', 'kiosko', 'maxikiosco', 'veterinaria',
+  'vet', 'clinica', 'tienda', 'casa', 'espacio', 'house', 'hair', 'beauty', 'estetica', 'the', 'los', 'las', 'el', 'la', 'de', 'del', 'y', 'and', 'e', 'en', 'a',
+]);
+
+/** Palabras que identifican al negocio (sin las genéricas del rubro). */
+export function coreTokens(key: string | undefined): string[] {
+  return (key ?? '').split(' ').filter((w) => w && !GENERIC.has(w) && !/^\d+$/.test(w));
+}
+
+/**
+ * ¿Nombres parecidos? Mismo núcleo de palabras, o el núcleo de uno contenido en el del otro con al
+ * menos una palabra distintiva (4+ letras). "barberia los primos" ~ "los primos barber club".
+ */
+export function similarNames(a: string | undefined, b: string | undefined): boolean {
+  const ta = coreTokens(a);
+  const tb = coreTokens(b);
+  if (!ta.length || !tb.length) return false;
+  const [small, big] = ta.length <= tb.length ? [ta, new Set(tb)] : [tb, new Set(ta)];
+  return small.every((w) => big.has(w)) && small.some((w) => w.length >= 4);
+}
+
 export function phoneKey(phone: string | undefined): string | undefined {
   const d = phone?.replace(/\D/g, '') ?? '';
   return d.length >= 8 ? d.slice(-8) : undefined;
@@ -144,6 +168,11 @@ export function duplicateReason(a: DedupeKeys, b: DedupeKeys): string | undefine
     if (a.addressKey && b.addressKey && a.addressKey === b.addressKey) return 'mismo nombre y dirección';
     if (a.streetKey && b.streetKey && a.streetKey === b.streetKey) return 'mismo nombre y misma calle y altura';
     if (!a.addressKey || !b.addressKey) return 'mismo nombre (una ficha sin dirección)';
+  }
+  // Mismo negocio con el nombre escrito distinto: nombre parecido Y la misma dirección (o calle y altura).
+  if (a.nameKey && b.nameKey && similarNames(a.nameKey, b.nameKey)) {
+    if (a.addressKey && b.addressKey && a.addressKey === b.addressKey) return 'nombre parecido y misma dirección';
+    if (a.streetKey && b.streetKey && a.streetKey === b.streetKey) return 'nombre parecido y misma calle y altura';
   }
   return undefined;
 }
