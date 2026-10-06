@@ -202,6 +202,35 @@ export const MIGRATIONS: string[] = [
   `
   ALTER TABLE prospects ADD COLUMN budget_override_json TEXT;
   `,
+  // 5 · Prospección automática: campañas (rubro + zona + mes), potencial comercial y claves extra
+  //     anti-duplicados (Instagram y WhatsApp). Solo agrega: no cambia ni borra datos existentes.
+  `
+  CREATE TABLE campaigns (
+    id          TEXT PRIMARY KEY,
+    rubro       TEXT NOT NULL,
+    rubro_key   TEXT NOT NULL,
+    zona        TEXT NOT NULL,
+    zona_key    TEXT NOT NULL,
+    month       TEXT NOT NULL,
+    label       TEXT NOT NULL,
+    user_id     TEXT REFERENCES users(id) ON DELETE SET NULL,
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+  );
+  CREATE UNIQUE INDEX ux_campaign ON campaigns(rubro_key, zona_key, month);
+  ALTER TABLE prospects ADD COLUMN campaign_id TEXT REFERENCES campaigns(id) ON DELETE SET NULL;
+  ALTER TABLE prospects ADD COLUMN potential_level TEXT;
+  ALTER TABLE prospects ADD COLUMN potential_reason TEXT;
+  ALTER TABLE prospects ADD COLUMN instagram_key TEXT;
+  ALTER TABLE prospects ADD COLUMN whatsapp_key TEXT;
+  CREATE INDEX idx_prospects_campaign ON prospects(campaign_id, status);
+  CREATE INDEX idx_prospects_instagram ON prospects(instagram_key);
+  CREATE INDEX idx_prospects_whatsapp ON prospects(whatsapp_key);
+  ALTER TABLE generator_runs ADD COLUMN campaign_id TEXT;
+  ALTER TABLE generated_prospects ADD COLUMN campaign_id TEXT;
+  ALTER TABLE generated_prospects ADD COLUMN discard_reason TEXT;
+  ALTER TABLE generated_prospects ADD COLUMN analysis_error TEXT;
+  `,
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

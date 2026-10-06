@@ -1,7 +1,7 @@
 import { api } from '../api.js';
 import {
   $, $$, IMP, autoGrow, confirmDialog, modal, copyText, date, dateTime, esc, icon, money, moneyShort, number, scoreClass,
-  statusLabel, statusOptions, toast, waMeUrl, waWebUrl, waPhone,
+  statusLabel, statusOptions, toast, waMeUrl, waWebUrl, waPhone, WA_TARGET,
 } from '../ui.js';
 
 function ring(score) {
@@ -243,7 +243,7 @@ function messagesCard(p) {
     <textarea class="textarea wa-text" id="msg" aria-label="Mensaje de contacto (editable)"></textarea>
     <p class="faint msg-hint" id="msg-hint">Podés editarlo antes de enviarlo. Si no te gusta, tocá "Otra versión".</p>
     <div class="btn-row contact-row">
-      <a class="btn btn-sm ${num ? 'btn-wa' : ''}" id="wa" target="_blank" rel="noopener noreferrer">${icon(num ? 'message' : 'external')}Abrir WhatsApp</a>
+      <a class="btn btn-sm ${num ? 'btn-wa' : ''}" id="wa" target="${WA_TARGET}">${icon(num ? 'message' : 'external')}Abrir WhatsApp</a>
       ${ig ? `<a class="btn btn-sm" id="ig" href="${esc(ig)}" target="_blank" rel="noopener">${icon('external')}Abrir Instagram</a>` : ''}
       <button class="btn btn-sm" id="copy">${icon('copy')}Copiar mensaje</button>
       <button class="btn btn-sm btn-primary" id="sent">${icon('check')}Registrar envío</button>

@@ -1,4 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { instagramUsername } from '../channels/links.js';
+import { assessPotential } from '../prospecting/potential.js';
+import { POTENTIAL_ORDER } from '../prospecting/sql.js';
 import type { AnalysisResult, AreaScore, Budget, SalesArgument, ServiceRecommendation } from '../domain/types.js';
 import { transaction, type Db } from '../db/database.js';
 import { buildBudget, loadPriceList, validateBudgetOverride, validatePriceList, writePriceList, type BudgetOverride, type PriceList } from '../proposal/budget.js';
@@ -29,9 +32,9 @@ type Row = Record<string, unknown>;
 const SUMMARY_SELECT = `SELECT p.id, p.name, p.category, p.vertical_id, p.vertical_label, p.maps_url, p.address, p.phone, p.website,
   p.rating, p.review_count, p.score, p.status, p.max_stage, p.potential_value, p.project_total, p.closed_value,
   p.problems_count, p.high_impact_count, p.analyzed_at, p.created_at, p.last_activity_at,
-  p.assigned_user_id, u.name AS assigned_user_name,
+  p.assigned_user_id, u.name AS assigned_user_name, p.campaign_id, c.label AS campaign_label, p.potential_level, p.potential_reason,
   (SELECT MIN(f.due_at) FROM followups f WHERE f.prospect_id = p.id AND f.status = 'pendiente') AS next_followup_at
-  FROM prospects p LEFT JOIN users u ON u.id = p.assigned_user_id`;
+  FROM prospects p LEFT JOIN users u ON u.id = p.assigned_user_id LEFT JOIN campaigns c ON c.id = p.campaign_id`;
 
 const SORTS: Record<NonNullable<ProspectFilter['sort']>, string> = {
   name: 'p.name COLLATE NOCASE',
@@ -42,6 +45,7 @@ const SORTS: Record<NonNullable<ProspectFilter['sort']>, string> = {
   lastActivity: 'p.last_activity_at',
   analyzedAt: 'p.analyzed_at',
   nextFollowup: `COALESCE(next_followup_at, '9999')`,
+  potentialLevel: POTENTIAL_ORDER,
 };
 
 const ACTIVITY_SELECT = `SELECT a.*, u.name AS user_name, p.name AS prospect_name
@@ -91,7 +95,21 @@ function toSummary(r: Row): ProspectSummary {
     assignedUserId: (r.assigned_user_id as string) ?? null,
     assignedUserName: (r.assigned_user_name as string) ?? null,
     nextFollowupAt: (r.next_followup_at as string) ?? null,
+    campaignId: (r.campaign_id as string) ?? null,
+    campaignLabel: (r.campaign_label as string) ?? null,
+    potentialLevel: (r.potential_level as ProspectSummary['potentialLevel']) ?? null,
+    potentialReason: (r.potential_reason as string) ?? null,
   };
+}
+
+/** Claves extra para detectar el mismo negocio con otro nombre: usuario de Instagram y WhatsApp (8 últimos dígitos). */
+export function channelKeys(result: AnalysisResult): { instagram: string | null; whatsapp: string | null } {
+  const ch = result.channels;
+  const ig = ch?.instagram?.instagram_username
+    ?? (ch?.instagramUrl ? instagramUsername(ch.instagramUrl) : undefined)
+    ?? result.profile.socialLinks?.map((l) => instagramUsername(l)).find(Boolean);
+  const wa = ch?.whatsappNumber?.replace(/\D/g, '');
+  return { instagram: ig ?? null, whatsapp: wa && wa.length >= 8 ? wa.slice(-8) : null };
 }
 
 function toActivity(r: Row): Activity {
@@ -150,7 +168,38 @@ export class CrmRepository {
     private readonly db: Db,
     private readonly priceSource: () => PriceList = () => loadPriceList(),
     private readonly priceWriter: (prices: PriceList) => void = (prices) => writePriceList(prices),
-  ) {}
+  ) {
+    this.backfillProspecting();
+  }
+
+  /**
+   * Prospectos guardados antes de la prospección automática: se les calcula una sola vez el potencial
+   * y las claves de Instagram/WhatsApp a partir de su último análisis (sin tocar nada más).
+   */
+  private backfillProspecting(): void {
+    let rows: Row[];
+    try {
+      rows = this.db.prepare(`SELECT p.id, (SELECT a.result_json FROM audits a WHERE a.prospect_id = p.id ORDER BY a.created_at DESC, a.rowid DESC LIMIT 1) AS result_json
+        FROM prospects p WHERE p.potential_level IS NULL`).all() as Row[];
+    } catch {
+      return; // base sin la migración (no debería pasar)
+    }
+    if (!rows.length) return;
+    const upd = this.db.prepare('UPDATE prospects SET potential_level = ?, potential_reason = ?, instagram_key = COALESCE(instagram_key, ?), whatsapp_key = COALESCE(whatsapp_key, ?) WHERE id = ?');
+    transaction(this.db, () => {
+      for (const r of rows) {
+        const result = parse<AnalysisResult | null>(r.result_json, null);
+        if (!result?.profile || !result.proposal) continue;
+        try {
+          const pot = assessPotential(result);
+          const keys = channelKeys(result);
+          upd.run(pot.level, pot.reason, keys.instagram, keys.whatsapp, String(r.id));
+        } catch {
+          /* análisis viejo incompleto: queda sin potencial */
+        }
+      }
+    });
+  }
 
   /**
    * Guarda precios editados desde Configuración y recalcula al instante presupuesto,
@@ -214,7 +263,7 @@ export class CrmRepository {
    */
   saveAnalysis(
     result: AnalysisResult,
-    opts: { source?: 'analisis' | 'importado'; auditId?: string; userId?: string } = {},
+    opts: { source?: 'analisis' | 'importado'; auditId?: string; userId?: string; campaignId?: string } = {},
   ): { id: string; created: boolean; assignedUserId: string | null } {
     const p = result.profile;
     if (!p.name) throw new ValidationError('El análisis no tiene nombre de negocio.');
@@ -227,6 +276,8 @@ export class CrmRepository {
     const problems = result.proposal.salesArguments;
     const ts = now();
     const analyzedAt = result.analyzedAt || ts;
+    const potential = assessPotential(result);
+    const keys = channelKeys(result);
     const fields = {
       name: p.name,
       category: p.category ?? null,
@@ -248,6 +299,10 @@ export class CrmRepository {
       services_json: json(result.proposal.services),
       budget_json: json(budget),
       analyzed_at: analyzedAt,
+      potential_level: potential.level,
+      potential_reason: potential.reason,
+      instagram_key: keys.instagram,
+      whatsapp_key: keys.whatsapp,
     };
     const source = opts.source ?? 'analisis';
 
@@ -268,11 +323,39 @@ export class CrmRepository {
           .run(id, key, ...(Object.values(fields) as never[]), userId, analyzedAt, ts, ts);
         this.logActivity(id, source === 'importado' ? 'importado' : 'creado', `Score ${fields.score}/100 · ${problems.length} problemas detectados`, ts, userId);
       }
+      // Un prospecto queda en la primera campaña que lo trajo (un reanálisis no lo mueve).
+      if (opts.campaignId) this.db.prepare('UPDATE prospects SET campaign_id = COALESCE(campaign_id, ?) WHERE id = ?').run(opts.campaignId, id);
       this.db
         .prepare('INSERT INTO audits (id, prospect_id, created_at, score, problems_count, duration_ms, source, result_json, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
         .run(opts.auditId ?? randomUUID(), id, analyzedAt, fields.score, problems.length, result.durationMs ?? 0, source, json(result), userId);
       return { id, created: !existing, assignedUserId: existing ? ((existing.assigned_user_id as string) ?? null) : userId };
     });
+  }
+
+  /**
+   * ¿Ya existe en el CRM el mismo negocio con otro nombre? Se compara por usuario de Instagram y por
+   * número de WhatsApp confirmado. Devuelve el prospecto existente y el motivo, o undefined.
+   */
+  findChannelDuplicate(result: AnalysisResult): { id: string; name: string; reason: string } | undefined {
+    const keys = channelKeys(result);
+    const own = dedupeKey(result.profile.name ?? '', result.profile.address, result.profile.phone ?? result.url);
+    for (const [col, value, reason] of [['instagram_key', keys.instagram, 'mismo Instagram'], ['whatsapp_key', keys.whatsapp, 'mismo WhatsApp']] as const) {
+      if (!value) continue;
+      const r = this.db.prepare(`SELECT id, name FROM prospects WHERE ${col} = ? AND dedupe_key <> ? LIMIT 1`).get(value, own) as Row | undefined;
+      if (r) return { id: String(r.id), name: String(r.name), reason };
+    }
+    return undefined;
+  }
+
+  /** Prospecto ya analizado del mismo negocio (nombre + dirección), con la fecha de su último análisis. */
+  findAnalyzed(name: string, address?: string, phone?: string): { id: string; analyzedAt: string } | undefined {
+    const r = this.db.prepare('SELECT id, analyzed_at FROM prospects WHERE dedupe_key = ?').get(dedupeKey(name, address, phone)) as Row | undefined;
+    return r ? { id: String(r.id), analyzedAt: String(r.analyzed_at) } : undefined;
+  }
+
+  /** Asigna una campaña a un prospecto existente si todavía no tiene (análisis reutilizado). */
+  setCampaignIfMissing(id: string, campaignId: string): void {
+    this.db.prepare('UPDATE prospects SET campaign_id = COALESCE(campaign_id, ?) WHERE id = ?').run(campaignId, id);
   }
 
   hasAudit(auditId: string): boolean {
@@ -309,6 +392,23 @@ export class CrmRepository {
       where.push('p.score <= ?');
       params.push(filter.maxScore);
     }
+    if (filter.campaignId === 'none') where.push('p.campaign_id IS NULL');
+    else if (filter.campaignId) {
+      where.push('p.campaign_id = ?');
+      params.push(filter.campaignId);
+    }
+    if (filter.rubro) {
+      where.push('c.rubro_key = ?');
+      params.push(filter.rubro);
+    }
+    if (filter.zona) {
+      where.push('c.zona_key = ?');
+      params.push(filter.zona);
+    }
+    if (filter.potential) {
+      where.push('p.potential_level = ?');
+      params.push(filter.potential);
+    }
     if (filter.assignedTo === 'none') where.push('p.assigned_user_id IS NULL');
     else if (filter.assignedTo) {
       where.push('p.assigned_user_id = ?');
@@ -322,9 +422,9 @@ export class CrmRepository {
 
   get(id: string): ProspectDetail {
     this.refreshValuesIfPricesChanged();
-    const r = this.db.prepare(`SELECT p.*, u.name AS assigned_user_name,
+    const r = this.db.prepare(`SELECT p.*, u.name AS assigned_user_name, c.label AS campaign_label,
       (SELECT MIN(f.due_at) FROM followups f WHERE f.prospect_id = p.id AND f.status = 'pendiente') AS next_followup_at
-      FROM prospects p LEFT JOIN users u ON u.id = p.assigned_user_id WHERE p.id = ?`).get(id) as Row | undefined;
+      FROM prospects p LEFT JOIN users u ON u.id = p.assigned_user_id LEFT JOIN campaigns c ON c.id = p.campaign_id WHERE p.id = ?`).get(id) as Row | undefined;
     if (!r) throw new NotFoundError('Prospecto no encontrado.');
     const latest = this.db.prepare('SELECT result_json FROM audits WHERE prospect_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1').get(id) as Row | undefined;
     // Catálogo actual: los servicios quitados no se muestran ni se ofrecen, y se usan los nombres editados.

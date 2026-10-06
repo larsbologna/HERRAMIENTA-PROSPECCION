@@ -201,6 +201,13 @@ export function waMeUrl(number, text) {
   return `https://wa.me/${n}?text=${encodeURIComponent(text || '')}`;
 }
 
+/**
+ * Pestaña ÚNICA para WhatsApp: todos los "Abrir WhatsApp" de la herramienta reutilizan la misma
+ * pestaña (wa.me es una página liviana que le pasa el chat a WhatsApp Desktop o al celular), así no
+ * se acumula una pestaña nueva por cada prospecto.
+ */
+export const WA_TARGET = 'wa_prospeccion';
+
 /** Respaldo: el mismo chat en WhatsApp Web (navegador). */
 export function waWebUrl(number, text) {
   const n = String(number || '').replace(/\D/g, '');

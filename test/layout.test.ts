@@ -177,7 +177,7 @@ for (const [name, state] of WA_STATES) {
     const message = await page.inputValue('#msg');
     const expected = `https://wa.me/5493415550000?text=${encodeURIComponent(message)}`;
     assert.equal(await page.getAttribute('#wa', 'href'), expected, 'enlace oficial Click to Chat con el número y el mensaje');
-    assert.equal(await page.getAttribute('#wa', 'target'), '_blank');
+    assert.equal(await page.getAttribute('#wa', 'target'), 'wa_prospeccion', 'siempre la misma pestaña (no una nueva por prospecto)');
 
     if (state === 'browser-keeps-focus') await page.bringToFront();
     const [popup] = await Promise.all([page.waitForEvent('popup'), page.click('#wa')]);

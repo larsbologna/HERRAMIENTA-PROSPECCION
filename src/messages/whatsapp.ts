@@ -76,6 +76,20 @@ const join = (items: string[]) => (items.length > 1 ? `${items.slice(0, -1).join
 const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
 export const wordCount = (s: string) => s.split(/\s+/).filter(Boolean).length;
 
+/** Canales que el negocio YA tiene, confirmados en la verificación cruzada (máx. 3, para el mensaje). */
+export function strengths(ch: ChannelReport | undefined): string[] {
+  if (!ch) return [];
+  const found = (id: string) => ch.channels.find((c) => c.id === id && c.status === 'encontrado');
+  const out: string[] = [];
+  if (found('instagram')) out.push('Instagram');
+  const web = found('web');
+  if (web && !/no carga/i.test(web.detail ?? '')) out.push('página web');
+  const res = found('reservas');
+  if (res?.url) out.push('reservas online');
+  else if (found('whatsapp')) out.push('WhatsApp a mano');
+  return out.slice(0, 3);
+}
+
 /**
  * Arma los tres mensajes a partir de los problemas CONFIRMADOS de ESTE negocio.
  * Estructura del primer contacto: saludo · presentación · contexto · problema real y consecuencia ·
@@ -113,7 +127,11 @@ function compose(i: MessageInput, seller: Seller, variant: number): { messages: 
   const quien = business ? `, ${business}${city ? ` acá en ${city}` : ''}` : city ? `, de ${city}` : '';
   const presentacion = `Soy ${me}${quien}.${customIntro ? ` ${customIntro}` : ''}`;
   const cuantas = selected.length === 1 ? 'una cosa puntual que me llamó la atención' : 'un par de cosas que me llamaron la atención';
-  const contexto = pick([`Estuve revisando ${i.name} y encontré ${cuantas}.`, `Estuve mirando cómo aparece ${i.name} en internet y encontré ${cuantas}.`], seed, 'c');
+  // Lo que el negocio YA tiene (verificado): se reconoce para no sonar genérico ni ofrecer lo que ya hay.
+  const ya = strengths(i.channels);
+  const contexto = ya.length
+    ? pick([`Estuve revisando ${i.name}. Vi que ya tienen ${join(ya)}, que está muy bien, pero encontré ${cuantas}.`, `Estuve mirando cómo aparece ${i.name} en internet. Ya tienen ${join(ya)}, eso suma, pero encontré ${cuantas}.`], seed, 'c')
+    : pick([`Estuve revisando ${i.name} y encontré ${cuantas}.`, `Estuve mirando cómo aparece ${i.name} en internet y encontré ${cuantas}.`], seed, 'c');
   const conectores = ['Además, ', 'Otra cosa que vi: ', 'Por otro lado, '];
   const cierre = pick(
     [

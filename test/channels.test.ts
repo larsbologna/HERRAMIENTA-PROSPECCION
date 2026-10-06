@@ -142,7 +142,10 @@ test('sin falsos problemas de reservas: Booksy en el Linktree descarta "no tiene
   assert.ok(!ids(con).includes('booking-none'));
   assert.ok(con.audit.contradicted?.some((f) => f.findingId === 'booking-none'), 'queda como "descartado: ya lo tiene"');
   assert.ok(!con.proposal.salesArguments.some((s) => s.findingId === 'booking-none'));
-  for (const t of Object.values(messages(con))) assert.doesNotMatch(t, /reserv|turnos? online|agenda online/i);
+  // No se VENDEN reservas (ni el problema ni el servicio); sí se reconoce que ya las tienen.
+  const NO_SELL = /forma de reservar|sistemas? de reservas|turnos? online|agenda online|necesita.*reserv/i;
+  for (const t of Object.values(messages(con))) assert.doesNotMatch(t, NO_SELL);
+  assert.match(messages(con).primerContacto, /ya tienen [^.]*reservas online/i);
 });
 
 test('reservas manuales por WhatsApp: el problema queda como probable y no va al mensaje', () => {
@@ -266,7 +269,8 @@ test('API: "Verificar presencia online" actualiza canales, argumentos y mensaje;
     assert.equal(after.analysis.channels.whatsappNumber, '5493415550000');
     assert.equal(channelOf(after.analysis.channels, 'reservas')?.status, 'encontrado');
     assert.ok(!after.analysis.audit.findings.some((f: { id: string }) => f.id === 'booking-none'));
-    assert.doesNotMatch(after.messages.primerContacto, /reserv/i);
+    assert.doesNotMatch(after.messages.primerContacto, /forma de reservar|sistemas? de reservas/i, "no vende reservas");
+    assert.match(after.messages.primerContacto, /ya tienen [^.]*reservas online/i, "reconoce que ya las tiene");
     assert.ok(after.activities.some((x: { content: string }) => /Presencia online verificada/.test(x.content)));
 
     // Ajeno → 404 (como el resto del CRM).

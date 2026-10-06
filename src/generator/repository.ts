@@ -141,16 +141,37 @@ export class GeneratorRepository {
     return [...delivered, ...inCrm];
   }
 
-  startRun(input: { rubro: string; zona: string; requested: number; userId: string | null }): string {
+  startRun(input: { rubro: string; zona: string; requested: number; userId: string | null; campaignId?: string }): string {
     const id = randomUUID();
     this.db
-      .prepare('INSERT INTO generator_runs (id, user_id, rubro, zona, requested, created_at) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(id, input.userId, input.rubro, input.zona, input.requested, now());
+      .prepare('INSERT INTO generator_runs (id, user_id, rubro, zona, requested, created_at, campaign_id) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(id, input.userId, input.rubro, input.zona, input.requested, now(), input.campaignId ?? null);
     return id;
   }
 
+  /** Negocio que resultó ser un duplicado (mismo Instagram/WhatsApp que uno conocido): queda registrado para no volver a entregarlo, pero no se muestra. */
+  discard(id: string, reason: string): void {
+    this.db.prepare('UPDATE generated_prospects SET discard_reason = ?, updated_at = ? WHERE id = ?').run(reason, now(), id);
+  }
+
+  /** El análisis automático falló: se guarda el motivo (se puede reintentar con "Analizar"). */
+  setAnalysisError(id: string, message: string | null): void {
+    this.db.prepare('UPDATE generated_prospects SET analysis_error = ?, updated_at = ? WHERE id = ?').run(message, now(), id);
+  }
+
+  /** Estado del CRM → estado del seguimiento del generador (para que ambas vistas coincidan). */
+  syncFromCrm(prospectId: string, crmStatus: string): void {
+    const map: Record<string, GeneratorStatus> = {
+      sin_contactar: 'nuevo', contactado: 'contactado', respondio: 'interesado', interesado: 'interesado', reunion: 'llamada',
+      propuesta: 'propuesta', cliente: 'ganado', perdido: 'perdido',
+    };
+    const status = map[crmStatus];
+    if (!status) return;
+    for (const r of this.db.prepare('SELECT id FROM generated_prospects WHERE prospect_id = ?').all(prospectId) as Row[]) this.setStatus(String(r.id), status);
+  }
+
   /** Guarda los negocios entregados en una búsqueda. Si alguno ya existía (carrera), se omite. */
-  saveRun(runId: string, input: { rubro: string; zona: string; userId: string | null }, result: GenerateResult): GeneratedProspect[] {
+  saveRun(runId: string, input: { rubro: string; zona: string; userId: string | null; campaignId?: string }, result: GenerateResult): GeneratedProspect[] {
     const ts = now();
     const insert = this.db.prepare(`INSERT INTO generated_prospects
       (id, run_id, user_id, name, address, phone, website, category, rating, review_count, maps_url, place_id, feature_id, url_key,
@@ -176,6 +197,9 @@ export class GeneratorRepository {
       this.db
         .prepare('UPDATE generator_runs SET found = ?, exhausted = ?, stats_json = ?, message = ?, finished_at = ? WHERE id = ?')
         .run(ids.length, result.exhausted ? 1 : 0, JSON.stringify(result.stats), result.message, ts, runId);
+      if (input.campaignId && ids.length) {
+        this.db.prepare(`UPDATE generated_prospects SET campaign_id = ? WHERE id IN (${ids.map(() => '?').join(',')})`).run(input.campaignId, ...ids);
+      }
     });
     return ids.map((id) => this.get(id)).sort((a, b) => b.score - a.score);
   }
@@ -193,7 +217,7 @@ export class GeneratorRepository {
   }
 
   list(f: { userId?: string; status?: string; q?: string; runId?: string; limit?: number } = {}): GeneratedProspect[] {
-    const where: string[] = [];
+    const where: string[] = ['g.discard_reason IS NULL'];
     const args: Array<string | number> = [];
     if (f.userId) { where.push('g.user_id = ?'); args.push(f.userId); }
     if (f.status && f.status !== 'todos') {

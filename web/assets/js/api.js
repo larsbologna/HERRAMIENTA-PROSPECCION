@@ -59,6 +59,17 @@ export const api = {
   generatorRuns: () => request('GET', '/api/generador/busquedas'),
   setGeneratedStatus: (id, status) => request('PATCH', `/api/generador/${encodeURIComponent(id)}`, { status }),
   linkGenerated: (id, prospectId) => request('POST', `/api/generador/${encodeURIComponent(id)}/vincular`, { prospectId }),
+
+  // Prospección automática (búsqueda en segundo plano + modo rápido)
+  prospecting: () => request('GET', '/api/prospeccion'),
+  prospectingSearch: (body) => request('POST', '/api/prospeccion/buscar', body),
+  prospectingJob: () => request('GET', '/api/prospeccion/trabajo'),
+  prospectingCancel: () => request('POST', '/api/prospeccion/trabajo/cancelar'),
+  prospectingList: (params = {}) => request('GET', '/api/prospeccion/prospectos?' + new URLSearchParams(Object.entries(params).filter(([, v]) => v !== '' && v != null))),
+  prospectingQueue: (params = {}) => request('GET', '/api/prospeccion/cola?' + new URLSearchParams(Object.entries(params).filter(([, v]) => v !== '' && v != null))),
+  quickCard: (id) => request('GET', `/api/prospeccion/ficha/${encodeURIComponent(id)}`),
+  contactResult: (id, body) => request('POST', `/api/prospeccion/${encodeURIComponent(id)}/resultado`, body),
+  followups: (params = {}) => request('GET', '/api/followups?' + new URLSearchParams(Object.entries(params).filter(([, v]) => v))),
 };
 
 /** POST con respuesta en streaming NDJSON (progreso en vivo). Devuelve el evento final (resultado). */

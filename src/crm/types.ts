@@ -4,14 +4,16 @@ import type { AnalysisResult, AreaScore, Budget, SalesArgument, ServiceRecommend
 
 /** Estados del pipeline comercial, en orden. `stage` mide hasta dónde avanzó (para el embudo). */
 export const STATUSES = [
-  { id: 'sin_contactar', label: 'Sin contactar', stage: 0 },
+  { id: 'sin_contactar', label: 'No contactado', stage: 0 },
   { id: 'contactado', label: 'Contactado', stage: 1 },
   { id: 'respondio', label: 'Respondió', stage: 2 },
+  { id: 'interesado', label: 'Interesado', stage: 2 },
   { id: 'reunion', label: 'Reunión agendada', stage: 3 },
   { id: 'propuesta', label: 'Propuesta enviada', stage: 4 },
   { id: 'cliente', label: 'Cliente', stage: 5 },
-  // "Perdido" no avanza el embudo: conserva la etapa máxima alcanzada.
-  { id: 'perdido', label: 'Perdido', stage: -1 },
+  // "Contactar después" y "No interesado" no avanzan el embudo: conservan la etapa máxima alcanzada.
+  { id: 'contactar_despues', label: 'Contactar después', stage: -1 },
+  { id: 'perdido', label: 'No interesado / perdido', stage: -1 },
 ] as const;
 
 export type ProspectStatus = (typeof STATUSES)[number]['id'];
@@ -84,6 +86,12 @@ export interface ProspectSummary {
   assignedUserName: string | null;
   /** Próximo seguimiento pendiente (fecha ISO), si hay. */
   nextFollowupAt: string | null;
+  /** Campaña de prospección (rubro + zona + mes), si vino de una búsqueda automática. */
+  campaignId: string | null;
+  campaignLabel: string | null;
+  /** Potencial comercial (alto / medio / bajo) y su motivo, calculado con datos verificados. */
+  potentialLevel: 'alto' | 'medio' | 'bajo' | null;
+  potentialReason: string | null;
 }
 
 export interface Activity {
@@ -152,10 +160,16 @@ export interface ProspectFilter {
   vertical?: string;
   minScore?: number;
   maxScore?: number;
-  sort?: 'name' | 'vertical' | 'score' | 'potential' | 'status' | 'lastActivity' | 'analyzedAt' | 'nextFollowup';
+  sort?: 'name' | 'vertical' | 'score' | 'potential' | 'status' | 'lastActivity' | 'analyzedAt' | 'nextFollowup' | 'potentialLevel';
   dir?: 'asc' | 'desc';
   /** id de usuario, 'none' (sin asignar) o undefined (todos). */
   assignedTo?: string;
+  /** id de campaña o 'none' (prospectos sin campaña). */
+  campaignId?: string;
+  /** Rubro y zona de la campaña (normalizados). */
+  rubro?: string;
+  zona?: string;
+  potential?: 'alto' | 'medio' | 'bajo';
 }
 
 export interface ProspectUpdate {

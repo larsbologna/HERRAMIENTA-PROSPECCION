@@ -46,10 +46,11 @@ Para cerrarla, cerrá la ventana negra. Tus datos quedan guardados.
 
 | Sección | Para qué |
 |---|---|
+| **Prospección** | **El flujo principal.** Elegís rubro, zona y cantidad; la herramienta busca, descarta repetidos y te entrega los prospectos **ya analizados** (potencial, oportunidad y mensaje), organizados en **campañas**. Desde ahí, el **Modo Prospección Rápida**. Ver abajo. |
 | **Dashboard** | Alerta de seguimientos pendientes y tu actividad (asignados, seguimientos, reuniones, conversión personal). Prospectos analizados, sin contactar, contactados, respondieron, reuniones, clientes, valor potencial y cerrado. Gráficos de prospectos por mes, valor acumulado, conversiones y estado comercial. Lista de "para contactar primero". |
 | **Prospectos** | Tabla con búsqueda, filtros por estado, rubro, score y vendedor, próximo contacto, asignación masiva (admin) y orden por cualquier columna. |
 | **Generador** | **Generador de Prospectos**: negocios nuevos de Google Maps por rubro, zona y cantidad, ordenados por oportunidad, con seguimiento comercial y estadísticas. Ver abajo. |
-| **Pipeline** | Kanban: Sin contactar → Contactado → Respondió → Reunión agendada → Propuesta enviada → Cliente / Perdido. Arrastrá las tarjetas; se guarda solo. |
+| **Pipeline** | Kanban: No contactado → Contactado → Respondió → Interesado → Reunión agendada → Propuesta enviada → Cliente, más Contactar después y No interesado / perdido. Arrastrá las tarjetas; se guarda solo. |
 | **Auditorías** | Nuevo análisis y registro de todos los análisis (incluidos los reanálisis). |
 | **Perfil del prospecto** | Responsable, próximo contacto, presupuesto **personalizable**, score por área, datos del negocio, problemas (impacto, motivo, servicio, beneficio), servicios recomendados, presupuesto, potencial económico, mensajes de WhatsApp, notas internas e historial. |
 | **Métricas** | Conversión, ticket promedio, servicios más recomendados, rubros más analizados, scores promedio y distribución. |
@@ -57,12 +58,62 @@ Para cerrarla, cerrá la ventana negra. Tus datos quedan guardados.
 
 ### Flujo diario sugerido
 
+**Con Prospección (recomendado):** Prospección → elegí *Barberías · Quilmes · 20* → **Buscar prospectos** → esperá que termine (podés dejarlo trabajando) → **Iniciar prospección rápida** → WhatsApp → **Contactado** → pasa solo al siguiente.
+
+**Un negocio puntual:**
+
 1. **Nuevo análisis** → pegá el enlace de Maps (botón *Compartir* de la ficha).
 2. En el perfil, revisá los problemas y elegí el mensaje: **1er contacto**, **Corto** o **Seguimiento**. Editalo si querés, **Copiar** o **Abrir WhatsApp**, y después **Registrar envío** (pasa a *Contactado* y queda en el historial).
 3. A medida que avanza, mové el prospecto en el **Pipeline** y anotá llamadas o reuniones en el **Historial**.
 4. Al cerrar, pasalo a **Cliente** y ajustá el **valor cerrado** si acordaste otro precio.
 
 Si analizás de nuevo un negocio (mismo nombre y dirección), se **actualiza** el prospecto: conserva estado, notas e historial, y suma una auditoría nueva.
+
+---
+
+## Prospección automática y Modo Prospección Rápida
+
+**1. Buscar.** En **Prospección** elegís rubro (Barberías, Peluquerías, Gimnasios, Restaurantes, Veterinarias, Kioscos, Tiendas u otro), zona (Quilmes, Berazategui, Bernal u otra) y cantidad (10, 20, 30, 50 u otra) y tocás **Buscar prospectos**. La herramienta:
+
+1. **Busca** en Google Maps **solo ese rubro**. Google mezcla resultados, así que cada negocio se acepta únicamente si su categoría o su nombre corresponde al rubro: una búsqueda de barberías trae solo barberías.
+2. **Descarta duplicados** contra todo lo que ya tenés, de cualquier campaña y de cualquier día: Place ID, ficha y URL de Maps, teléfono, web, nombre más dirección y **nombres parecidos con la misma dirección** ("Barbería Los Primos" = "Los Primos Barber Club"). Después del análisis también compara **mismo Instagram** y **mismo WhatsApp**.
+3. **Analiza cada negocio, de a uno**, para no exigir a la PC: Maps, web, Instagram con su Linktree, WhatsApp y reservas. Con eso arma oportunidades, potencial, argumento y mensaje. Si un análisis falla se reintenta una vez; si sigue fallando, se informa y se sigue con el próximo.
+4. **Guarda** cada resultado apenas termina. Si se corta, lo hecho queda guardado.
+
+La búsqueda corre en el servidor: la pantalla solo consulta el avance cada pocos segundos, así que podés dejarla trabajando o cerrar la pestaña. Si no hay suficientes negocios nuevos, entrega los que hay y lo dice: *"Se encontraron 7 prospectos nuevos válidos… No hay suficientes negocios nuevos para completar 20 sin repetir."* Nunca rellena con repetidos. Hay una búsqueda pesada por vez: Prospección, Generador y Análisis no corren al mismo tiempo.
+
+**2. Campañas.** Cada búsqueda suma sus prospectos a la campaña **RUBRO — ZONA — MES** (por ejemplo, "BARBERÍAS — QUILMES — OCTUBRE"). Los rubros nunca se mezclan. Cada campaña muestra:
+- encontrados y analizados;
+- no contactados, contactados, respondieron, interesados y para contactar después;
+- potencial alto, medio y bajo.
+
+**3. Potencial comercial** (🔥 alto · 🟡 medio · ⚪ bajo), siempre con su **motivo** (por ejemplo, *"Potencial alto porque tiene 183 reseñas, Instagram encontrado, celular de contacto y 3 oportunidades confirmadas. No se detectó web propia."*). Se calcula solo con datos verificados: reseñas, canales encontrados, contacto disponible y oportunidades confirmadas. Sin teléfono ni WhatsApp verificado, o sin oportunidades confirmadas, es bajo.
+
+**4. Oportunidades.** Para cada prospecto se muestra qué **tiene**, qué **no tiene**, qué **no se pudo verificar** y qué ofrecerle **y por qué**. Nunca se ofrece lo que ya tiene: si tiene web, se propone *mejorarla*; si reserva por Booksy, no se venden reservas. El mensaje lo reconoce: *"Vi que ya tienen Instagram y reservas online, que está muy bien, pero encontré…"*.
+
+**5. Filtros combinables:** campaña, estado, potencial y búsqueda por nombre. La API también filtra por rubro y zona.
+
+**6. Modo Prospección Rápida.** Muestra un prospecto por vez, solo los **no contactados** de la campaña, ordenados por potencial. Para cada uno se ve:
+- Google Maps (calificación y reseñas, con ✓ verificado o ? no verificado);
+- Instagram, Web, WhatsApp y Reservas (✓ / ✕ / ?);
+- la oportunidad y el mensaje editable (completo o corto).
+
+Los botones son:
+- **Copiar mensaje**, **WhatsApp**, **Instagram**, **Google Maps** y **Web**: si un destino no existe, el botón aparece deshabilitado con "no disponible".
+- **Contactado**: guarda el mensaje usado en el historial y pasa solo al siguiente.
+- **Contactar después**: pide una fecha, la agenda en **Próximos contactos** y lo saca de pendientes.
+- **No interesado**.
+- **Siguiente →**: saltea al próximo sin volver al listado.
+
+Los contactados desaparecen de pendientes y siguen en el historial.
+
+**WhatsApp en la PC (lo que sí y lo que no se puede):**
+- Una página web no puede controlar un chat ya abierto en WhatsApp Desktop: el único mecanismo oficial es el enlace `https://wa.me/<número>?text=<mensaje>`.
+- Para que no se acumulen pestañas, todos los botones de WhatsApp usan **la misma pestaña**. wa.me es una página liviana que le pasa el chat a WhatsApp Desktop o al celular.
+- Al tocar el botón, el mensaje **también se copia**. Si el chat se abre sin el texto, lo pegás con Ctrl+V.
+- **Copiar mensaje** está siempre a mano.
+
+**Estados:** No contactado · Contactado · Respondió · Interesado · Reunión agendada · Propuesta enviada · Cliente · Contactar después · No interesado / perdido. Los prospectos anteriores conservan su estado. "Sin contactar" y "Perdido" se muestran como "No contactado" y "No interesado / perdido".
 
 ---
 
@@ -257,7 +308,7 @@ web/                       Interfaz (SPA sin build)
         ├── api.js         Cliente de la API
         ├── charts.js      Gráficos SVG
         ├── ui.js          Formato, íconos, modales, avisos
-        └── views/         auth, dashboard, prospects, generator, pipeline, audits, prospect, metrics, settings
+        └── views/         auth, dashboard, prospecting, rapid, prospects, generator, pipeline, audits, prospect, metrics, settings
 src/
 ├── server.ts              Arranque (127.0.0.1 por defecto; HOST/TRUST_PROXY para VPS)
 ├── usersCli.ts            Gestión de usuarios por terminal
@@ -268,6 +319,7 @@ src/
 ├── messages/              Mensajes de WhatsApp (primer contacto, corto, seguimiento) y prioridad comercial de cada problema
 ├── channels/              Instagram (perfil público + Linktree), enlaces y verificación cruzada de canales
 ├── generator/             Generador de Prospectos: búsqueda en Maps, duplicados, score y persistencia
+├── prospecting/           Prospección automática: rubros, campañas, potencial, oportunidades y búsqueda en segundo plano
 ├── analyzer.ts            Análisis completo (Maps → web → auditoría → propuesta → presupuesto)
 ├── scraper/               Playwright: Google Maps y sitio web          ┐
 ├── auditor/               Reglas de auditoría por área y rubro          │ lógica validada
@@ -299,6 +351,10 @@ Todas las rutas requieren sesión salvo las de `/api/auth` (login, estado, alta 
 | GET | `/api/dashboard` | Datos agregados (del vendedor o globales) y KPIs personales |
 | GET | `/api/metrics`, `/api/audits`, `/api/activity` | Métricas, auditorías y registro de actividad (admin) |
 | GET / POST / PATCH | `/api/users`, `/api/users/:id` | Gestión de usuarios (admin) |
+| GET | `/api/prospeccion` | Rubros, zonas, campañas con resumen y búsqueda en curso |
+| POST | `/api/prospeccion/buscar` | Búsqueda automática `{rubro, zona, cantidad}` (en segundo plano) · `GET /api/prospeccion/trabajo` avance · `POST /api/prospeccion/trabajo/cancelar` |
+| GET | `/api/prospeccion/prospectos`, `/api/prospeccion/cola` | Listado con filtros (`campana`, `rubro`, `zona`, `estado`, `potencial`, `q`) · cola de no contactados para "Siguiente" |
+| GET / POST | `/api/prospeccion/ficha/:id`, `/api/prospeccion/:id/resultado` | Ficha del modo rápido · resultado del contacto `{estado, mensaje?, fecha?, nota?}` |
 | POST | `/api/generador/generar` | Generador de Prospectos: `{rubro, zona, cantidad}` (progreso en streaming NDJSON) |
 | GET / PATCH | `/api/generador`, `/api/generador/:id` | Prospectos generados (`estado`, `q`) · cambiar estado comercial |
 | GET | `/api/generador/estadisticas`, `/api/generador/busquedas` | Estadísticas del seguimiento · búsquedas realizadas |
@@ -307,7 +363,7 @@ Todas las rutas requieren sesión salvo las de `/api/auth` (login, estado, alta 
 | GET | `/api/export` | Copia de seguridad JSON (admin) |
 
 ```bash
-npm test           # 114 tests: unitarios, presupuesto, CRM, migraciones, autenticación y roles, API, mensajes, diagnóstico, confiabilidad, generador (dedupe, score, persistencia, API e interfaz), canales e Instagram simulado, mensajes, layout y e2e con Chromium
+npm test           # 134 tests: unitarios, presupuesto, CRM, migraciones, autenticación y roles, API, mensajes, diagnóstico, confiabilidad, generador (dedupe, score, persistencia, API e interfaz), canales e Instagram simulado, mensajes, layout y e2e con Chromium
 npm run typecheck
 ```
 

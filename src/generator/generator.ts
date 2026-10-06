@@ -53,6 +53,8 @@ export interface GenerateStats {
   outOfZone: number;
   closed: number;
   errors: number;
+  /** Negocios de otro rubro que Google mezcló en los resultados (descartados). */
+  outOfRubro?: number;
   queries: string[];
 }
 
@@ -78,6 +80,8 @@ export interface GenerateDeps {
   timeoutMs?: number;
   /** Solo negocios cuya dirección menciona la zona pedida (por defecto true). */
   strictZone?: boolean;
+  /** Solo negocios del rubro pedido (categoría de Google o nombre). Sin filtro se aceptan todos. */
+  rubroFilter?: (c: { name: string; category?: string }) => boolean;
 }
 
 export const MAX_CANTIDAD = 50;
@@ -292,6 +296,10 @@ export async function generateProspects(req: GenerateRequest, deps: GenerateDeps
     }
     if (strictZone && !inZone(c.address, zona, read.raw.plusCode)) {
       stats.outOfZone++;
+      return;
+    }
+    if (deps.rubroFilter && !deps.rubroFilter(c)) {
+      stats.outOfRubro = (stats.outOfRubro ?? 0) + 1;
       return;
     }
     const dup = seen.match(c.keys);

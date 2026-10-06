@@ -79,7 +79,8 @@ test('configuración, meta y exportación', async () => {
   assert.equal(s.prices.moneda, 'ARS');
   assert.equal(s.priceError, null);
   const meta = (await admin.get('/api/meta')).body;
-  assert.equal(meta.statuses.length, 7);
+  assert.equal(meta.statuses.length, 9, 'se sumaron Interesado y Contactar después');
+  for (const id of ['sin_contactar', 'contactado', 'respondio', 'interesado', 'reunion', 'propuesta', 'cliente', 'contactar_despues', 'perdido']) assert.ok(meta.statuses.some((s: { id: string }) => s.id === id), id);
   assert.ok(meta.users.some((u: any) => u.name === 'Iván'));
   const exp = await admin.req('GET', '/api/export');
   assert.match(exp.headers.get('content-disposition') ?? '', /prospectos-\d{4}-\d{2}-\d{2}\.json/);
