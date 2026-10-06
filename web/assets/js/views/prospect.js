@@ -1,7 +1,7 @@
 import { api } from '../api.js';
 import {
   $, $$, IMP, autoGrow, confirmDialog, modal, copyText, date, dateTime, esc, icon, money, moneyShort, number, scoreClass,
-  statusLabel, statusOptions, toast, waChatUrl, waPhone, isTouchDevice,
+  statusLabel, statusOptions, toast, waMeUrl, waWebUrl, waPhone,
 } from '../ui.js';
 
 function ring(score) {
@@ -220,16 +220,6 @@ function valueCard(p) {
 const confirmedWa = (p) => p.analysis?.channels?.whatsappNumber;
 /** Número al que se abre el chat: el WhatsApp confirmado o, si no hay, el teléfono de Google. */
 const chatNumber = (p) => confirmedWa(p) || waPhone(p.phone);
-/** En la computadora: abrir en la app de WhatsApp (por defecto, con WhatsApp Web de respaldo) o en WhatsApp Web. Se recuerda por navegador. */
-const WA_MODE_KEY = 'waMode';
-function waMode() {
-  if (isTouchDevice()) return 'mobile';
-  try {
-    return localStorage.getItem(WA_MODE_KEY) === 'web' ? 'web' : 'app';
-  } catch {
-    return 'app';
-  }
-}
 const igUrl = (p) => p.analysis?.channels?.instagramUrl;
 
 function selectionHtml(sel) {
@@ -253,15 +243,15 @@ function messagesCard(p) {
     <textarea class="textarea wa-text" id="msg" aria-label="Mensaje de contacto (editable)"></textarea>
     <p class="faint msg-hint" id="msg-hint">Podés editarlo antes de enviarlo. Si no te gusta, tocá "Otra versión".</p>
     <div class="btn-row contact-row">
-      <a class="btn btn-sm ${num ? 'btn-wa' : ''}" id="wa" rel="noopener">${icon(num ? 'message' : 'external')}${num ? 'Contactar por WhatsApp' : 'Abrir WhatsApp'}</a>
-      ${isTouchDevice() ? '' : `<select class="select select-sm" id="wa-mode" aria-label="Abrir WhatsApp en" title="Dónde se abre el chat">
-        <option value="app"${waMode() === 'app' ? ' selected' : ''}>App de WhatsApp</option>
-        <option value="web"${waMode() === 'web' ? ' selected' : ''}>WhatsApp Web (navegador)</option></select>`}
+      <a class="btn btn-sm ${num ? 'btn-wa' : ''}" id="wa" target="_blank" rel="noopener noreferrer">${icon(num ? 'message' : 'external')}Abrir WhatsApp</a>
       ${ig ? `<a class="btn btn-sm" id="ig" href="${esc(ig)}" target="_blank" rel="noopener">${icon('external')}Abrir Instagram</a>` : ''}
       <button class="btn btn-sm" id="copy">${icon('copy')}Copiar mensaje</button>
       <button class="btn btn-sm btn-primary" id="sent">${icon('check')}Registrar envío</button>
     </div>
-    <div id="wa-fallback" hidden></div>
+    <div id="wa-fallback" class="wa-fallback" hidden>
+      <span class="faint">¿No se abrió el chat en la app de WhatsApp?</span>
+      <a class="btn btn-sm" id="wa-web" target="whatsapp" rel="noopener noreferrer">${icon('external')}Continuar en WhatsApp Web</a>
+    </div>
     ${wa
       ? `<p class="faint contact-note">WhatsApp +${esc(wa)}, encontrado en ${esc(p.analysis.channels.whatsappSource ?? 'sus canales')}. Se abre con el mensaje cargado: no se envía solo.</p>`
       : num ? `<p class="faint contact-note">Se abre el chat con +${esc(num)} (teléfono de Google, no se confirmó que tenga WhatsApp) con el mensaje cargado: no se envía solo.</p>`
@@ -385,48 +375,22 @@ export async function render(main, { id }, ctx) {
     setWaHref(ta.value);
     for (const b of $$('[data-msg]', main)) b.classList.toggle('on', b.dataset.msg === msgKey);
   };
-  // Abre directo el chat del negocio (WhatsApp confirmado o teléfono de Google) con el mensaje de ESTE prospecto.
+  // "Abrir WhatsApp": enlace oficial Click to Chat (https://wa.me/NÚMERO?text=MENSAJE) que abre el navegador
+  // como cualquier enlace. No se usa whatsapp://, ni window.location, ni se intenta detectar o manejar
+  // la app: WhatsApp (abierto, cerrado o minimizado) recibe el enlace por el mecanismo normal del sistema.
   const setWaHref = (text) => {
     const a = $('#wa', main);
-    const mode = waMode();
-    a.href = waChatUrl(chatNumber(p), text, mode === 'app' ? 'web' : mode);
-    // WhatsApp Web siempre en la misma pestaña (no permite abrirse en dos).
-    a.target = mode === 'mobile' ? '_blank' : 'whatsapp';
+    a.href = waMeUrl(chatNumber(p), text);
+    const web = $('#wa-web', main);
+    if (web) web.href = waWebUrl(chatNumber(p), text);
   };
-  /**
-   * App de WhatsApp en la computadora: se abre con whatsapp://send (chat del número + mensaje cargado).
-   * Si el navegador no tiene la app asociada, ese enlace no hace NADA y no avisa: si en unos segundos
-   * la ventana no perdió el foco (señal de que se abrió la app), se abre el chat en WhatsApp Web.
-   */
-  const openWhatsApp = (e) => {
-    const text = $('#msg', main).value;
+  /** Al tocar: el enlace se abre solo (no se cancela); se copia el mensaje y queda a mano el respaldo de WhatsApp Web. */
+  const onWhatsAppClick = () => {
     const num = chatNumber(p);
-    void copyText(text).catch(() => {});
+    void copyText($('#msg', main).value).catch(() => {});
     const box = $('#wa-fallback', main);
-    if (box) box.hidden = true;
-    if (waMode() !== 'app') {
-      toast(num ? `Abriendo el chat con +${num} · mensaje copiado por si hace falta pegarlo` : 'Abriendo WhatsApp · mensaje copiado');
-      return; // el enlace abre WhatsApp Web / wa.me
-    }
-    e.preventDefault();
-    let opened = false;
-    const mark = () => { opened = true; };
-    window.addEventListener('blur', mark, { once: true });
-    document.addEventListener('visibilitychange', mark, { once: true });
-    toast(num ? `Abriendo la app de WhatsApp con +${num} · mensaje copiado por si hace falta pegarlo` : 'Abriendo la app de WhatsApp · mensaje copiado');
-    window.location.href = waChatUrl(num, text, 'app');
-    setTimeout(() => {
-      window.removeEventListener('blur', mark);
-      document.removeEventListener('visibilitychange', mark);
-      if (opened) return;
-      const webUrl = waChatUrl(num, text, 'web');
-      if (box) {
-        box.hidden = false;
-        box.innerHTML = `<div class="alert warn wa-fallback"><span class="alert-icon">${icon('bell')}</span><div>
-          <b>La app de WhatsApp no respondió.</b> Abrí el chat en WhatsApp Web o elegí "WhatsApp Web (navegador)" al lado del botón para que siempre se abra ahí.
-          <div class="btn-row" style="margin-top:8px"><a class="btn btn-sm btn-wa" href="${esc(webUrl)}" target="whatsapp" rel="noopener">${icon('message')}Abrir en WhatsApp Web</a></div></div></div>`;
-      }
-    }, 2500);
+    if (box) box.hidden = false;
+    toast(num ? `Abriendo el chat con +${num} · mensaje copiado por si hace falta pegarlo` : 'Abriendo WhatsApp · mensaje copiado');
   };
 
   let notesTimer;
@@ -515,12 +479,7 @@ export async function render(main, { id }, ctx) {
     // Mensajes
     for (const b of $$('[data-msg]', main)) b.onclick = () => { msgKey = b.dataset.msg; showMessage(); };
     $('#msg', main).oninput = (e) => { edited = true; autoGrow(e.target); setWaHref(e.target.value); };
-    $('#wa', main).onclick = openWhatsApp;
-    const modeSel = $('#wa-mode', main);
-    if (modeSel) modeSel.onchange = () => {
-      try { localStorage.setItem(WA_MODE_KEY, modeSel.value); } catch { /* sin almacenamiento: vale para esta vista */ }
-      setWaHref($('#msg', main).value);
-    };
+    $('#wa', main).addEventListener('click', onWhatsAppClick);
     $('#regen', main).onclick = async () => {
       if (edited && !(await confirmDialog('Generar otra versión', 'Vas a perder los cambios que hiciste a mano en este mensaje.', 'Generar otra'))) return;
       const btn = $('#regen', main);
